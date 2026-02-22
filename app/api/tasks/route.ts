@@ -1,43 +1,55 @@
 import db from "@/db"
 import tasks from "@/db/schema/models/tasks.model"
+import { createTask } from "@/lib/services/task.service"
 import { and, gte, lte } from "drizzle-orm"
 import { NextRequest, NextResponse } from "next/server"
-import v from 'validator'
 
-export async function POST (req: NextRequest) {
-    try {
-        const body = await req.json()
-        const { name, taskType, startDate, endDate } = body
+const HARDCODED_USER_ID = 'c5520625-cb6d-4afa-b212-ceab7b17ce6f'
 
-        let missing_fields = []
+export async function POST(request: Request) {
+  try {
+    const body = await request.json()
+    const { name, taskType, startDate, endDate, recurrenceDays } = body
 
-        if(!name)
-            missing_fields.push("name")
-        if(!taskType)
-            missing_fields.push("task type")
-        if(!startDate)
-            missing_fields.push("start date")
-        if(!endDate)
-            missing_fields.push("end date")
-
-        if(missing_fields.length > 0)
-            return NextResponse.json({ success: false, message: "Missing required fields: " + missing_fields.join(", ") }, { status: 400 })
-
-        const result = await db.insert(tasks)
-                .values({
-                    userId: 'c5520625-cb6d-4afa-b212-ceab7b17ce6f',
-                    name,
-                    taskType,
-                    startDate,
-                    endDate
-                })
-                .returning({ insertedId: tasks.id })
-
-        return NextResponse.json({ success: true, result }, { status: 201 })
-    } catch (error) {
-        console.log(error)
-        return NextResponse.json({ success: false, message: "Internal Server Error : " + error }, { status: 502 })
+    // Basic validation
+    if (!name || !taskType || !startDate) {
+      return NextResponse.json(
+        { error: 'Missing required fields' },
+        { status: 400 }
+      )
     }
+
+    if (taskType === 'one_time' && recurrenceDays?.length) {
+      return NextResponse.json(
+        { error: 'One‑time tasks cannot have recurrence days' },
+        { status: 400 }
+      )
+    }
+
+    if (taskType === 'recurring' && (!recurrenceDays || recurrenceDays.length === 0)) {
+      return NextResponse.json(
+        { error: 'Recurring tasks must specify recurrenceDays' },
+        { status: 400 }
+      )
+    }
+
+    const taskId = await createTask({
+      userId: HARDCODED_USER_ID,
+      name,
+      taskType,
+      startDate,
+      endDate: endDate || null,
+      recurrenceDays,
+    })
+
+    return NextResponse.json({ success: true, taskId }, { status: 201 })
+  } catch (error) {
+    console.error('Error creating task:', error)
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    )
+  }
 }
 
 export async function GET(req: NextRequest) {
