@@ -2,7 +2,7 @@ import db from '@/db'
 import tasks from '@/db/schema/models/tasks.model'
 import taskRecurrenceDays from '@/db/schema/models/taskRecurrenceDays.model'
 import taskOccurrences from '@/db/schema/models/taskOccurences.model'
-import { and, eq, gte } from 'drizzle-orm'
+import { and, desc, eq, gte, lte, sql } from 'drizzle-orm'
 
 // Helper: get today's date as YYYY-MM-DD (UTC)
 function getTodayString(): string {
@@ -45,6 +45,13 @@ function generateOccurrences(
     current.setUTCDate(current.getUTCDate() + 1)
   }
   return occurrences
+}
+
+// Helper: Adding months
+function addMonths(date: Date, months: number): Date {
+  const result = new Date(date)
+  result.setUTCMonth(result.getUTCMonth() + months)
+  return result
 }
 
 export interface ICreateTask {
@@ -93,7 +100,6 @@ export async function createTask(input: ICreateTask) {
       occurrencesToInsert.push({ taskId, date: startDate, completed: false })
     } else {
       if (startDate < todayStr) {
-        const pastEnd = endDate && endDate < todayStr ? endDate : todayStr
         const yesterdayDate = new Date(dateFromString(todayStr))
         yesterdayDate.setUTCDate(yesterdayDate.getUTCDate() - 1)
         const yesterdayStr = yesterdayDate.toISOString().split('T')[0]
@@ -106,15 +112,14 @@ export async function createTask(input: ICreateTask) {
       }
 
       const futureStart = startDate > todayStr ? startDate : todayStr
-      const oneYearFromNow = new Date(dateFromString(todayStr))
-      oneYearFromNow.setUTCFullYear(oneYearFromNow.getUTCFullYear() + 1)
-      const oneYearStr = oneYearFromNow.toISOString().split('T')[0]
+      const twoMonthsFromNow = addMonths(dateFromString(todayStr), 2)
+      const twoMonthsStr = twoMonthsFromNow.toISOString().split('T')[0]
 
       let futureEndStr: string
-      if (endDate && endDate < oneYearStr) {
+      if (endDate && endDate < twoMonthsStr) {
         futureEndStr = endDate
       } else {
-        futureEndStr = oneYearStr
+        futureEndStr = twoMonthsStr
       }
 
       if (futureStart <= futureEndStr) {
@@ -244,4 +249,174 @@ export async function deleteTask(input: IDeleteTask) {
   await db.delete(tasks).where(eq(tasks.id, id))
 
   return { success: true }
+}
+
+export async function ensureOccurrencesForRange(
+  userId: string,
+  rangeStart: string,
+  rangeEnd: string
+) {
+  // Getting all recurring tasks for this user
+  const userTasks = await db
+    .select({
+      id: tasks.id,
+      startDate: tasks.startDate,
+      endDate: tasks.endDate,
+    })
+    .from(tasks)
+    .where(and(eq(tasks.userId, userId), eq(tasks.taskType, 'recurring')))
+
+  for (const task of userTasks) {
+    // Finding the latest generated occurrence for this task (if any)
+    const latestOccurrence = await db
+      .select({ date: taskOccurrences.date })
+      .from(taskOccurrences)
+      .where(eq(taskOccurrences.taskId, task.id))
+      .orderBy(desc(taskOccurrences.date))
+      .limit(1)
+
+    // If no occurrences yet, start from task.startDate
+    const lastGeneratedDate = latestOccurrence[0]?.date || task.startDate
+
+    // Determine the task's effective end (or infinity)
+    const taskEnd = task.endDate || '9999-12-31'
+
+    // We need to generate from the day after lastGeneratedDate up to rangeEnd,
+    // but only if that interval intersects with the requested range and is not already generated.
+    // However, there might be gaps before lastGeneratedDate? No, because we generate sequentially,
+    // so lastGeneratedDate is the maximum date we have. We need to generate from max(lastGeneratedDate+1, rangeStart) to rangeEnd.
+
+    const dayAfterLast = new Date(dateFromString(lastGeneratedDate))
+    dayAfterLast.setUTCDate(dayAfterLast.getUTCDate() + 1)
+    const dayAfterStr = dayAfterLast.toISOString().split('T')[0]
+
+    let generationStart = rangeStart > dayAfterStr ? rangeStart : dayAfterStr
+    let generationEnd = rangeEnd < taskEnd ? rangeEnd : taskEnd
+
+    if (generationStart > generationEnd) continue
+
+    // Fetch recurrence days for this task
+    const recurrenceRows = await db
+      .select({ dayOfWeek: taskRecurrenceDays.dayOfWeek })
+      .from(taskRecurrenceDays)
+      .where(eq(taskRecurrenceDays.taskId, task.id))
+
+    if (recurrenceRows.length === 0) continue // should not happen for recurring tasks
+
+    const recurrenceSet = new Set(recurrenceRows.map(r => r.dayOfWeek))
+
+    // Generate missing occurrences
+    const newOccurrences = generateOccurrences(
+      task.id,
+      generationStart,
+      generationEnd,
+      recurrenceSet
+    )
+
+    if (newOccurrences.length > 0) {
+      await db.insert(taskOccurrences).values(newOccurrences)
+    }
+  }
+}
+
+export async function getTodayTasks(userId: string) {
+  const todayStr = getTodayString()
+
+  const results = await db
+    .select({
+      occurrenceId: taskOccurrences.id,
+      taskId: tasks.id,
+      taskName: tasks.name,
+      taskType: tasks.taskType,
+      date: taskOccurrences.date,
+      completed: taskOccurrences.completed,
+    })
+    .from(taskOccurrences)
+    .innerJoin(tasks, eq(tasks.id, taskOccurrences.taskId))
+    .where(
+      and(
+        eq(tasks.userId, userId),
+        eq(taskOccurrences.date, todayStr)
+      )
+    )
+    .orderBy(tasks.name)
+
+  return results
+}
+
+export async function getOccurrencesInRange(
+  userId: string,
+  startDate: string,
+  endDate: string
+) {
+  await ensureOccurrencesForRange(userId, startDate, endDate)
+
+  const results = await db
+    .select({
+      occurrenceId: taskOccurrences.id,
+      taskId: tasks.id,
+      taskName: tasks.name,
+      date: taskOccurrences.date,
+      completed: taskOccurrences.completed,
+    })
+    .from(taskOccurrences)
+    .innerJoin(tasks, eq(tasks.id, taskOccurrences.taskId))
+    .where(
+      and(
+        eq(tasks.userId, userId),
+        gte(taskOccurrences.date, startDate),
+        lte(taskOccurrences.date, endDate)
+      )
+    )
+    .orderBy(taskOccurrences.date, tasks.name)
+
+  return results
+}
+
+export async function getDailyProgressStats(
+  userId: string,
+  startDate: string,
+  endDate: string
+) {
+  await ensureOccurrencesForRange(userId, startDate, endDate)
+
+  const dateSeries = sql<{ date: string }>`
+    SELECT generate_series(${startDate}::date, ${endDate}::date, '1 day') AS date
+  `
+
+  const dailyStats = db
+    .select({
+      date: taskOccurrences.date,
+      totalTasks: sql<number>`count(*)`.as('total_tasks'),
+      completedTasks: sql<number>`sum(case when ${taskOccurrences.completed} then 1 else 0 end)`.as('completed_tasks'),
+    })
+    .from(taskOccurrences)
+    .innerJoin(tasks, eq(tasks.id, taskOccurrences.taskId))
+    .where(
+      and(
+        eq(tasks.userId, userId),
+        gte(taskOccurrences.date, startDate),
+        lte(taskOccurrences.date, endDate)
+      )
+    )
+    .groupBy(taskOccurrences.date)
+    .as('daily_stats')
+
+  const result = await db
+    .select({
+      date: sql<string>`date_series.date`,
+      totalTasks: sql<number>`coalesce(${dailyStats.totalTasks}, 0)`,
+      completedTasks: sql<number>`coalesce(${dailyStats.completedTasks}, 0)`,
+      progressPercent: sql<number>`
+        coalesce(
+          (${dailyStats.completedTasks} * 100.0) / nullif(${dailyStats.totalTasks}, 0),
+          0
+        )
+      `,
+    })
+    .from(sql`(${dateSeries}) as date_series`)
+    .leftJoin(dailyStats, sql`date_series.date = ${dailyStats.date}`)
+    .orderBy(sql`date_series.date`)
+
+  return result
 }

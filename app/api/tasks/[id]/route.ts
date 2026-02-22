@@ -31,8 +31,6 @@ export async function PATCH(
       .where(and(eq(tasks.id, taskId), eq(tasks.userId, HARDCODED_USER_ID)))
       .limit(1)
 
-      console.log(existingTasks)
-
     if (existingTasks.length === 0) {
       return NextResponse.json(
         { error: 'Task not found' },
