@@ -1,6 +1,6 @@
 import db from "@/db"
 import tasks from "@/db/schema/models/tasks.model"
-import { updateTask } from "@/lib/services/task.service"
+import { deleteTask, updateTask } from "@/lib/services/task.service"
 import { and, eq } from "drizzle-orm"
 import { NextResponse } from "next/server"
 
@@ -73,6 +73,35 @@ export async function PATCH(
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error('Error updating task:', error)
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    )
+  }
+}
+
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params
+    const taskId = id
+
+    await deleteTask({
+      id: taskId,
+      userId: HARDCODED_USER_ID,
+    })
+
+    return NextResponse.json({ success: true })
+  } catch (error) {
+    console.error('Error deleting task:', error)
+    if (error instanceof Error && error.message === 'Task not found or access denied') {
+      return NextResponse.json(
+        { error: error.message },
+        { status: 404 }
+      )
+    }
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

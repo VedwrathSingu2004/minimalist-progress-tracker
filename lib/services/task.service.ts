@@ -1,56 +1,69 @@
-import db from '@/db';
+import db from '@/db'
 import tasks from '@/db/schema/models/tasks.model'
 import taskRecurrenceDays from '@/db/schema/models/taskRecurrenceDays.model'
-import taskOccurrences from '@/db/schema/models/taskOccurences.model';
-import { and, eq, gte } from 'drizzle-orm';
+import taskOccurrences from '@/db/schema/models/taskOccurences.model'
+import { and, eq, gte } from 'drizzle-orm'
 
-// Helper: get today's date at midnight
-function getTodayDate(): Date {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
+// Helper: get today's date as YYYY-MM-DD (UTC)
+function getTodayString(): string {
+  const d = new Date()
+  const year = d.getUTCFullYear()
+  const month = String(d.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(d.getUTCDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
-// Helper: generate occurrence objects for a date range
+// Helper: convert YYYY-MM-DD to a Date object at UTC midnight
+function dateFromString(dateStr: string): Date {
+  const [year, month, day] = dateStr.split('-').map(Number)
+  return new Date(Date.UTC(year, month - 1, day))
+}
+
+// Helper: generate occurrence objects for a date range (inclusive)
 function generateOccurrences(
   taskId: string,
-  start: Date,
-  end: Date,
+  startStr: string,
+  endStr: string,
   recurrenceDays: Set<number>
 ): { taskId: string; date: string; completed: boolean }[] {
-  const occurrences = [];
-  const current = new Date(start);
+  const occurrences = []
+  const start = dateFromString(startStr)
+  const end = dateFromString(endStr)
+  const current = new Date(start)
+
   while (current <= end) {
-    if (recurrenceDays.has(current.getDay())) {
+    if (recurrenceDays.has(current.getUTCDay())) {
+      const year = current.getUTCFullYear()
+      const month = String(current.getUTCMonth() + 1).padStart(2, '0')
+      const day = String(current.getUTCDate()).padStart(2, '0')
       occurrences.push({
         taskId,
-        date: current.toISOString().split('T')[0],
+        date: `${year}-${month}-${day}`,
         completed: false,
-      });
+      })
     }
-    current.setDate(current.getDate() + 1);
+    current.setUTCDate(current.getUTCDate() + 1)
   }
-  return occurrences;
+  return occurrences
 }
 
 export interface ICreateTask {
-  userId: string;
-  name: string;
-  taskType: 'recurring' | 'one_time';
-  startDate: string;
-  endDate?: string | null;
-  recurrenceDays?: number[];
+  userId: string
+  name: string
+  taskType: 'recurring' | 'one_time'
+  startDate: string
+  endDate?: string | null
+  recurrenceDays?: number[]
 }
 
 export async function createTask(input: ICreateTask) {
-  const { userId, name, taskType, startDate, endDate, recurrenceDays = [] } = input;
+  const { userId, name, taskType, startDate, endDate, recurrenceDays = [] } = input
 
   if (taskType === 'recurring' && recurrenceDays.length === 0) {
-    throw new Error('Recurring tasks must have at least one recurrence day');
+    throw new Error('Recurring tasks must have at least one recurrence day')
   }
 
   return await db.transaction(async (tx) => {
-    // 1. Insert task
     const [newTask] = await tx
       .insert(tasks)
       .values({
@@ -60,73 +73,62 @@ export async function createTask(input: ICreateTask) {
         startDate,
         endDate: taskType === 'one_time' ? startDate : endDate,
       })
-      .returning({ id: tasks.id });
+      .returning({ id: tasks.id })
 
-    const taskId = newTask.id;
+    const taskId = newTask.id
 
-    // 2. Insert recurrence days
     if (taskType === 'recurring' && recurrenceDays.length > 0) {
       const daysToInsert = recurrenceDays.map((day) => ({
         taskId,
         dayOfWeek: day,
-      }));
-      await tx.insert(taskRecurrenceDays).values(daysToInsert);
+      }))
+      await tx.insert(taskRecurrenceDays).values(daysToInsert)
     }
 
-    // 3. Generate occurrences
-    const today = getTodayDate();
-    const start = new Date(startDate);
-    start.setHours(0, 0, 0, 0);
-
-    let effectiveEndDate: Date | null = null;
-    if (taskType === 'one_time') {
-      effectiveEndDate = start;
-    } else if (endDate) {
-      effectiveEndDate = new Date(endDate);
-      effectiveEndDate.setHours(0, 0, 0, 0);
-    }
-
-    const recurrenceSet = new Set(recurrenceDays);
-    const occurrencesToInsert: { taskId: string; date: string; completed: boolean }[] = [];
+    const todayStr = getTodayString()
+    const recurrenceSet = new Set(recurrenceDays)
+    const occurrencesToInsert: { taskId: string; date: string; completed: boolean }[] = []
 
     if (taskType === 'one_time') {
-      occurrencesToInsert.push({ taskId, date: startDate, completed: false });
+      occurrencesToInsert.push({ taskId, date: startDate, completed: false })
     } else {
-      // Past segment
-      if (start < today) {
-        const pastEnd = effectiveEndDate && effectiveEndDate < today
-          ? effectiveEndDate
-          : new Date(today.getTime() - 86400000); // yesterday
-        if (start <= pastEnd) {
-          const pastOccurrences = generateOccurrences(taskId, start, pastEnd, recurrenceSet);
-          occurrencesToInsert.push(...pastOccurrences);
+      if (startDate < todayStr) {
+        const pastEnd = endDate && endDate < todayStr ? endDate : todayStr
+        const yesterdayDate = new Date(dateFromString(todayStr))
+        yesterdayDate.setUTCDate(yesterdayDate.getUTCDate() - 1)
+        const yesterdayStr = yesterdayDate.toISOString().split('T')[0]
+        const pastEndStr = endDate && endDate < yesterdayStr ? endDate : yesterdayStr
+
+        if (startDate <= pastEndStr) {
+          const pastOccurrences = generateOccurrences(taskId, startDate, pastEndStr, recurrenceSet)
+          occurrencesToInsert.push(...pastOccurrences)
         }
       }
 
-      // Future segment (up to 1 year ahead)
-      const futureStart = start > today ? start : today;
-      const oneYearFromNow = new Date(today);
-      oneYearFromNow.setFullYear(today.getFullYear() + 1);
+      const futureStart = startDate > todayStr ? startDate : todayStr
+      const oneYearFromNow = new Date(dateFromString(todayStr))
+      oneYearFromNow.setUTCFullYear(oneYearFromNow.getUTCFullYear() + 1)
+      const oneYearStr = oneYearFromNow.toISOString().split('T')[0]
 
-      let futureEnd: Date;
-      if (effectiveEndDate && effectiveEndDate < oneYearFromNow) {
-        futureEnd = effectiveEndDate;
+      let futureEndStr: string
+      if (endDate && endDate < oneYearStr) {
+        futureEndStr = endDate
       } else {
-        futureEnd = oneYearFromNow;
+        futureEndStr = oneYearStr
       }
 
-      if (futureStart <= futureEnd) {
-        const futureOccurrences = generateOccurrences(taskId, futureStart, futureEnd, recurrenceSet);
-        occurrencesToInsert.push(...futureOccurrences);
+      if (futureStart <= futureEndStr) {
+        const futureOccurrences = generateOccurrences(taskId, futureStart, futureEndStr, recurrenceSet)
+        occurrencesToInsert.push(...futureOccurrences)
       }
     }
 
     if (occurrencesToInsert.length > 0) {
-      await tx.insert(taskOccurrences).values(occurrencesToInsert);
+      await tx.insert(taskOccurrences).values(occurrencesToInsert)
     }
 
-    return taskId;
-  });
+    return taskId
+  })
 }
 
 export interface IUpdateTask {
@@ -140,7 +142,6 @@ export interface IUpdateTask {
 export async function updateTask(input: IUpdateTask) {
   const { id, userId, name, endDate, recurrenceDays } = input
 
-  // 1. Verify task exists and belongs to user (using standard query)
   const existingTasks = await db
     .select()
     .from(tasks)
@@ -153,9 +154,7 @@ export async function updateTask(input: IUpdateTask) {
 
   const existingTask = existingTasks[0]
 
-  // 2. Start a transaction
   return await db.transaction(async (tx) => {
-    // 3. Update basic task fields
     const updateData: Partial<typeof tasks.$inferInsert> = {}
     if (name !== undefined) updateData.name = name
     if (endDate !== undefined) updateData.endDate = endDate
@@ -167,14 +166,11 @@ export async function updateTask(input: IUpdateTask) {
         .where(eq(tasks.id, id))
     }
 
-    // 4. If recurrenceDays provided, update recurrence pattern
     if (recurrenceDays !== undefined) {
-      // Delete old recurrence days
       await tx
         .delete(taskRecurrenceDays)
         .where(eq(taskRecurrenceDays.taskId, id))
 
-      // Insert new ones
       if (recurrenceDays.length > 0) {
         const daysToInsert = recurrenceDays.map(day => ({
           taskId: id,
@@ -183,11 +179,8 @@ export async function updateTask(input: IUpdateTask) {
         await tx.insert(taskRecurrenceDays).values(daysToInsert)
       }
 
-      // 5. Re‑generate future occurrences (date >= today)
-      const today = getTodayDate()
-      const todayStr = today.toISOString().split('T')[0]
+      const todayStr = getTodayString()
 
-      // Delete all future occurrences for this task
       await tx
         .delete(taskOccurrences)
         .where(
@@ -197,26 +190,25 @@ export async function updateTask(input: IUpdateTask) {
           )
         )
 
-      // Determine generation end date
       const finalEndDate = endDate !== undefined ? endDate : existingTask.endDate
-      const effectiveEndDate = finalEndDate ? new Date(finalEndDate) : null
+      const recurrenceSet = new Set(recurrenceDays)
 
-      const oneYearFromNow = new Date(today)
-      oneYearFromNow.setFullYear(today.getFullYear() + 1)
+      const oneYearFromNow = new Date(dateFromString(todayStr))
+      oneYearFromNow.setUTCFullYear(oneYearFromNow.getUTCFullYear() + 1)
+      const oneYearStr = oneYearFromNow.toISOString().split('T')[0]
 
-      let generationEnd: Date
-      if (effectiveEndDate && effectiveEndDate < oneYearFromNow) {
-        generationEnd = effectiveEndDate
+      let generationEndStr: string
+      if (finalEndDate && finalEndDate < oneYearStr) {
+        generationEndStr = finalEndDate
       } else {
-        generationEnd = oneYearFromNow
+        generationEndStr = oneYearStr
       }
 
-      if (today <= generationEnd) {
-        const recurrenceSet = new Set(recurrenceDays)
+      if (todayStr <= generationEndStr) {
         const newOccurrences = generateOccurrences(
           id,
-          today,
-          generationEnd,
+          todayStr,
+          generationEndStr,
           recurrenceSet
         )
         if (newOccurrences.length > 0) {
@@ -227,4 +219,29 @@ export async function updateTask(input: IUpdateTask) {
 
     return { success: true }
   })
+}
+
+export interface IDeleteTask {
+  id: string
+  userId: string
+}
+
+export async function deleteTask(input: IDeleteTask) {
+  const { id, userId } = input
+
+  // Verifying task exists and belongs to user
+  const existingTasks = await db
+    .select({ id: tasks.id })
+    .from(tasks)
+    .where(and(eq(tasks.id, id), eq(tasks.userId, userId)))
+    .limit(1)
+
+  if (existingTasks.length === 0) {
+    throw new Error('Task not found or access denied')
+  }
+
+  // Deleting the task – ON DELETE CASCADE handles related tables
+  await db.delete(tasks).where(eq(tasks.id, id))
+
+  return { success: true }
 }
