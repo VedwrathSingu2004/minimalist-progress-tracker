@@ -420,3 +420,45 @@ export async function getDailyProgressStats(
 
   return result
 }
+
+export async function toggleOccurrence(occurrenceId: string, userId: string) {
+  const result = await db
+    .select({
+      occurrenceId: taskOccurrences.id,
+      taskId: tasks.id,
+      completed: taskOccurrences.completed,
+      date: taskOccurrences.date,
+    })
+    .from(taskOccurrences)
+    .innerJoin(tasks, eq(tasks.id, taskOccurrences.taskId))
+    .where(
+      and(
+        eq(taskOccurrences.id, occurrenceId),
+        eq(tasks.userId, userId)
+      )
+    )
+    .limit(1)
+
+  if (result.length === 0) {
+    throw new Error('Occurrence not found or access denied')
+  }
+
+  const occurrence = result[0]
+  const newCompleted = !occurrence.completed
+
+  const [updated] = await db
+    .update(taskOccurrences)
+    .set({
+      completed: newCompleted,
+      updatedAt: new Date()
+    })
+    .where(eq(taskOccurrences.id, occurrenceId))
+    .returning({
+      id: taskOccurrences.id,
+      taskId: taskOccurrences.taskId,
+      date: taskOccurrences.date,
+      completed: taskOccurrences.completed,
+    })
+
+  return updated
+}
