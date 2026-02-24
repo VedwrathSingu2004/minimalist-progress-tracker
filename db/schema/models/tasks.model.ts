@@ -1,10 +1,10 @@
 import { date, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core"
-import users from "./users.model"
+import { user } from "../auth"
 import taskTypeEnum from "../enums/taskType.enum"
 
 const tasks = pgTable('tasks', {
   id: uuid('id').primaryKey().defaultRandom(),
-  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id').references(() => user.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
   taskType: taskTypeEnum('task_type').notNull(),
   startDate: date('start_date').notNull(),
