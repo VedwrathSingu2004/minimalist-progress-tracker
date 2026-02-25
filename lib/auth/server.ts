@@ -10,14 +10,13 @@ export const auth = betterAuth({
   }),
   advanced: {
     database: {
-      generateId: "uuid", // Generates UUID v4 using crypto.randomUUID()
+      generateId: "uuid",
     },
   },
   emailAndPassword: {
     enabled: true,
-    autoSignIn: true, // automatically sign in after sign-up
+    autoSignIn: true,
   },
-  // You can add social providers later:
   // socialProviders: {
   //   github: {
   //     clientId: process.env.GITHUB_CLIENT_ID!,

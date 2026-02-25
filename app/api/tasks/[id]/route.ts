@@ -1,22 +1,29 @@
+import { auth } from "@/better-auth.config"
 import db from "@/db"
 import tasks from "@/db/schema/models/tasks.model"
 import { deleteTask, updateTask } from "@/lib/services/task.service"
 import { and, eq } from "drizzle-orm"
+import { headers } from "next/headers"
 import { NextResponse } from "next/server"
-
-const HARDCODED_USER_ID = 'c5520625-cb6d-4afa-b212-ceab7b17ce6f'
 
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const session = await auth.api.getSession({
+      headers: await headers(),
+    })
+    
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
     const { id } = await params
     const taskId = id
     const body = await request.json()
     const { name, endDate, recurrenceDays } = body
 
-    // Validate at least one field
     if (name === undefined && endDate === undefined && recurrenceDays === undefined) {
       return NextResponse.json(
         { error: 'No fields to update' },
@@ -28,7 +35,7 @@ export async function PATCH(
     const existingTasks = await db
       .select({ taskType: tasks.taskType })
       .from(tasks)
-      .where(and(eq(tasks.id, taskId), eq(tasks.userId, HARDCODED_USER_ID)))
+      .where(and(eq(tasks.id, taskId), eq(tasks.userId, session.user.id)))
       .limit(1)
 
     if (existingTasks.length === 0) {
@@ -40,7 +47,7 @@ export async function PATCH(
 
     const currentTaskType = existingTasks[0].taskType
 
-    // Prevent adding recurrenceDays to a one‑time task
+    // Preventing adding recurrenceDays to a one‑time task
     if (currentTaskType === 'one_time' && recurrenceDays !== undefined) {
       return NextResponse.json(
         { error: 'Cannot set recurrence days for a one‑time task' },
@@ -62,7 +69,7 @@ export async function PATCH(
 
     await updateTask({
       id: taskId,
-      userId: HARDCODED_USER_ID,
+      userId: session.user.id,
       name,
       endDate,
       recurrenceDays
@@ -83,12 +90,20 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const session = await auth.api.getSession({
+      headers: await headers(),
+    })
+    
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
     const { id } = await params
     const taskId = id
 
     await deleteTask({
       id: taskId,
-      userId: HARDCODED_USER_ID,
+      userId: session.user.id,
     })
 
     return NextResponse.json({ success: true })

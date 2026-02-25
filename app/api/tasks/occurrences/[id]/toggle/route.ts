@@ -1,17 +1,24 @@
 import { NextResponse } from 'next/server'
 import { toggleOccurrence } from '@/lib/services/task.service'
-
-const HARDCODED_USER_ID = 'c5520625-cb6d-4afa-b212-ceab7b17ce6f'
+import { auth } from '@/better-auth.config'
+import { headers } from 'next/headers'
 
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const session = await auth.api.getSession({
+      headers: await headers(),
+    })
+    
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
     const { id } = await params
     const occurrenceId = id
 
-    const updatedOccurrence = await toggleOccurrence(occurrenceId, HARDCODED_USER_ID)
+    const updatedOccurrence = await toggleOccurrence(occurrenceId, session.user.id)
 
     return NextResponse.json({ success: true, data: updatedOccurrence })
   } catch (error) {

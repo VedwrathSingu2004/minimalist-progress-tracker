@@ -1,10 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDailyProgressStats } from '@/lib/services/task.service'
+import { auth } from '@/better-auth.config'
+import { headers } from 'next/headers'
 
-const HARDCODED_USER_ID = 'c5520625-cb6d-4afa-b212-ceab7b17ce6f'
 
 export async function GET(req: NextRequest) {
   try {
+    const session = await auth.api.getSession({
+      headers: await headers(),
+    })
+    
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
     const { searchParams } = new URL(req.url)
     const startDate = searchParams.get('startDate')
     const endDate = searchParams.get('endDate')
@@ -17,7 +25,7 @@ export async function GET(req: NextRequest) {
     }
 
     const stats = await getDailyProgressStats(
-      HARDCODED_USER_ID,
+      session.user.id,
       startDate,
       endDate
     )

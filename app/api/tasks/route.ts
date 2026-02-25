@@ -1,17 +1,24 @@
+import { auth } from "@/better-auth.config"
 import db from "@/db"
 import tasks from "@/db/schema/models/tasks.model"
 import { createTask } from "@/lib/services/task.service"
 import { and, gte, lte } from "drizzle-orm"
+import { headers } from "next/headers"
 import { NextRequest, NextResponse } from "next/server"
-
-const HARDCODED_USER_ID = 'c5520625-cb6d-4afa-b212-ceab7b17ce6f'
 
 export async function POST(request: Request) {
   try {
+    const session = await auth.api.getSession({
+      headers: await headers(),
+    })
+    
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    
     const body = await request.json()
     const { name, taskType, startDate, endDate, recurrenceDays } = body
 
-    // Basic validation
     if (!name || !taskType || !startDate) {
       return NextResponse.json(
         { error: 'Missing required fields' },
@@ -34,7 +41,7 @@ export async function POST(request: Request) {
     }
 
     const taskId = await createTask({
-      userId: HARDCODED_USER_ID,
+      userId: session.user.id,
       name,
       taskType,
       startDate,
