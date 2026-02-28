@@ -108,7 +108,7 @@ export const DesktopSidebar = ({
           className,
         )}
         animate={{
-          width: animate ? (open ? '250px' : '60px') : '250px',
+          width: animate ? (open ? '250px' : '75px') : '250px',
           boxShadow: animate
             ? open
               ? '4px 0 24px rgba(0, 0, 0, 0.08)'
