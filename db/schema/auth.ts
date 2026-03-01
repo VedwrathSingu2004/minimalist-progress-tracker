@@ -1,5 +1,7 @@
 import { relations } from "drizzle-orm";
 import { pgTable, text, timestamp, boolean, index, uuid } from "drizzle-orm/pg-core";
+import tasks from "./models/tasks.model";
+import projects from "./models/projects.model";
 
 export const user = pgTable("user", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -74,6 +76,8 @@ export const verification = pgTable(
 );
 
 export const userRelations = relations(user, ({ many }) => ({
+  tasks: many(tasks),
+  projects: many(projects),
   sessions: many(session),
   accounts: many(account),
 }));

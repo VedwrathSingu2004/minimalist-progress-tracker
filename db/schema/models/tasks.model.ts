@@ -1,10 +1,15 @@
-import { date, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core"
-import { user } from "../auth"
-import taskTypeEnum from "../enums/taskType.enum"
+import { pgTable, uuid, text, timestamp, date } from 'drizzle-orm/pg-core'
+import { user } from '../auth'
+import projects from './projects.model'
+import taskTypeEnum from '../enums/taskType.enum'
 
 const tasks = pgTable('tasks', {
   id: uuid('id').primaryKey().defaultRandom(),
-  userId: uuid('user_id').references(() => user.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id')
+    .references(() => user.id, { onDelete: 'cascade' })
+    .notNull(),
+  projectId: uuid('project_id')
+    .references(() => projects.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
   taskType: taskTypeEnum('task_type').notNull(),
   startDate: date('start_date').notNull(),

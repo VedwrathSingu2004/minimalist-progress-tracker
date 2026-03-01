@@ -1,6 +1,7 @@
 export * from './auth'
 
 export { default as tasks } from './models/tasks.model'
+export { default as projects } from './models/projects.model'
 export { default as taskRecurrenceDays } from './models/taskRecurrenceDays.model'
 export { default as taskOccurrences } from './models/taskOccurences.model'
 
