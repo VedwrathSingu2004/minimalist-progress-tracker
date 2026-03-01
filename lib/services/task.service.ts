@@ -1,10 +1,10 @@
 import db from '@/db'
 import tasks from '@/db/schema/models/tasks.model'
+import projects from '@/db/schema/models/projects.model'
 import taskRecurrenceDays from '@/db/schema/models/taskRecurrenceDays.model'
 import taskOccurrences from '@/db/schema/models/taskOccurences.model'
 import { and, desc, eq, gte, lte, sql } from 'drizzle-orm'
 
-// Helper: get today's date as YYYY-MM-DD (UTC)
 function getTodayString(): string {
   const d = new Date()
   const year = d.getUTCFullYear()
@@ -13,13 +13,11 @@ function getTodayString(): string {
   return `${year}-${month}-${day}`
 }
 
-// Helper: convert YYYY-MM-DD to a Date object at UTC midnight
 function dateFromString(dateStr: string): Date {
   const [year, month, day] = dateStr.split('-').map(Number)
   return new Date(Date.UTC(year, month - 1, day))
 }
 
-// Helper: generate occurrence objects for a date range (inclusive)
 function generateOccurrences(
   taskId: string,
   startStr: string,
@@ -47,7 +45,6 @@ function generateOccurrences(
   return occurrences
 }
 
-// Helper: Adding months
 function addMonths(date: Date, months: number): Date {
   const result = new Date(date)
   result.setUTCMonth(result.getUTCMonth() + months)
@@ -61,13 +58,25 @@ export interface ICreateTask {
   startDate: string
   endDate?: string | null
   recurrenceDays?: number[]
+  projectId?: string | null               // <-- new field
 }
 
 export async function createTask(input: ICreateTask) {
-  const { userId, name, taskType, startDate, endDate, recurrenceDays = [] } = input
+  const { userId, name, taskType, startDate, endDate, recurrenceDays = [], projectId } = input
 
   if (taskType === 'recurring' && recurrenceDays.length === 0) {
     throw new Error('Recurring tasks must have at least one recurrence day')
+  }
+
+  if (projectId) {
+    const project = await db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(and(eq(projects.id, projectId), eq(projects.userId, userId)))
+      .limit(1)
+    if (project.length === 0) {
+      throw new Error('Project not found or access denied')
+    }
   }
 
   return await db.transaction(async (tx) => {
@@ -79,6 +88,7 @@ export async function createTask(input: ICreateTask) {
         taskType,
         startDate,
         endDate: taskType === 'one_time' ? startDate : endDate,
+        projectId,                         // <-- insert projectId
       })
       .returning({ id: tasks.id })
 
@@ -142,10 +152,11 @@ export interface IUpdateTask {
   name?: string
   endDate?: string | null
   recurrenceDays?: number[]
+  projectId?: string | null
 }
 
 export async function updateTask(input: IUpdateTask) {
-  const { id, userId, name, endDate, recurrenceDays } = input
+  const { id, userId, name, endDate, recurrenceDays, projectId } = input
 
   const existingTasks = await db
     .select()
@@ -159,10 +170,22 @@ export async function updateTask(input: IUpdateTask) {
 
   const existingTask = existingTasks[0]
 
+  if (projectId !== undefined && projectId !== null) {
+    const project = await db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(and(eq(projects.id, projectId), eq(projects.userId, userId)))
+      .limit(1)
+    if (project.length === 0) {
+      throw new Error('Project not found or access denied')
+    }
+  }
+
   return await db.transaction(async (tx) => {
     const updateData: Partial<typeof tasks.$inferInsert> = {}
     if (name !== undefined) updateData.name = name
     if (endDate !== undefined) updateData.endDate = endDate
+    if (projectId !== undefined) updateData.projectId = projectId
 
     if (Object.keys(updateData).length > 0) {
       await tx
@@ -198,15 +221,14 @@ export async function updateTask(input: IUpdateTask) {
       const finalEndDate = endDate !== undefined ? endDate : existingTask.endDate
       const recurrenceSet = new Set(recurrenceDays)
 
-      const oneYearFromNow = new Date(dateFromString(todayStr))
-      oneYearFromNow.setUTCFullYear(oneYearFromNow.getUTCFullYear() + 1)
-      const oneYearStr = oneYearFromNow.toISOString().split('T')[0]
+      const twoMonthsFromNow = addMonths(dateFromString(todayStr), 2)
+      const twoMonthsStr = twoMonthsFromNow.toISOString().split('T')[0]
 
       let generationEndStr: string
-      if (finalEndDate && finalEndDate < oneYearStr) {
+      if (finalEndDate && finalEndDate < twoMonthsStr) {
         generationEndStr = finalEndDate
       } else {
-        generationEndStr = oneYearStr
+        generationEndStr = twoMonthsStr
       }
 
       if (todayStr <= generationEndStr) {
@@ -234,7 +256,6 @@ export interface IDeleteTask {
 export async function deleteTask(input: IDeleteTask) {
   const { id, userId } = input
 
-  // Verifying task exists and belongs to user
   const existingTasks = await db
     .select({ id: tasks.id })
     .from(tasks)
@@ -245,7 +266,6 @@ export async function deleteTask(input: IDeleteTask) {
     throw new Error('Task not found or access denied')
   }
 
-  // Deleting the task – ON DELETE CASCADE handles related tables
   await db.delete(tasks).where(eq(tasks.id, id))
 
   return { success: true }
@@ -256,7 +276,6 @@ export async function ensureOccurrencesForRange(
   rangeStart: string,
   rangeEnd: string
 ) {
-  // Getting all recurring tasks for this user
   const userTasks = await db
     .select({
       id: tasks.id,
@@ -267,7 +286,6 @@ export async function ensureOccurrencesForRange(
     .where(and(eq(tasks.userId, userId), eq(tasks.taskType, 'recurring')))
 
   for (const task of userTasks) {
-    // Finding the latest generated occurrence for this task (if any)
     const latestOccurrence = await db
       .select({ date: taskOccurrences.date })
       .from(taskOccurrences)
@@ -275,16 +293,8 @@ export async function ensureOccurrencesForRange(
       .orderBy(desc(taskOccurrences.date))
       .limit(1)
 
-    // If no occurrences yet, start from task.startDate
     const lastGeneratedDate = latestOccurrence[0]?.date || task.startDate
-
-    // Determine the task's effective end (or infinity)
     const taskEnd = task.endDate || '9999-12-31'
-
-    // We need to generate from the day after lastGeneratedDate up to rangeEnd,
-    // but only if that interval intersects with the requested range and is not already generated.
-    // However, there might be gaps before lastGeneratedDate? No, because we generate sequentially,
-    // so lastGeneratedDate is the maximum date we have. We need to generate from max(lastGeneratedDate+1, rangeStart) to rangeEnd.
 
     const dayAfterLast = new Date(dateFromString(lastGeneratedDate))
     dayAfterLast.setUTCDate(dayAfterLast.getUTCDate() + 1)
@@ -295,17 +305,15 @@ export async function ensureOccurrencesForRange(
 
     if (generationStart > generationEnd) continue
 
-    // Fetch recurrence days for this task
     const recurrenceRows = await db
       .select({ dayOfWeek: taskRecurrenceDays.dayOfWeek })
       .from(taskRecurrenceDays)
       .where(eq(taskRecurrenceDays.taskId, task.id))
 
-    if (recurrenceRows.length === 0) continue // should not happen for recurring tasks
+    if (recurrenceRows.length === 0) continue
 
     const recurrenceSet = new Set(recurrenceRows.map(r => r.dayOfWeek))
 
-    // Generate missing occurrences
     const newOccurrences = generateOccurrences(
       task.id,
       generationStart,
@@ -319,8 +327,16 @@ export async function ensureOccurrencesForRange(
   }
 }
 
-export async function getTodayTasks(userId: string) {
+export async function getTodayTasks(userId: string, projectId?: string) {
   const todayStr = getTodayString()
+
+  const conditions = [
+    eq(tasks.userId, userId),
+    eq(taskOccurrences.date, todayStr)
+  ]
+  if (projectId) {
+    conditions.push(eq(tasks.projectId, projectId))
+  }
 
   const results = await db
     .select({
@@ -333,12 +349,7 @@ export async function getTodayTasks(userId: string) {
     })
     .from(taskOccurrences)
     .innerJoin(tasks, eq(tasks.id, taskOccurrences.taskId))
-    .where(
-      and(
-        eq(tasks.userId, userId),
-        eq(taskOccurrences.date, todayStr)
-      )
-    )
+    .where(and(...conditions))
     .orderBy(tasks.name)
 
   return results
@@ -347,9 +358,19 @@ export async function getTodayTasks(userId: string) {
 export async function getOccurrencesInRange(
   userId: string,
   startDate: string,
-  endDate: string
+  endDate: string,
+  projectId?: string
 ) {
   await ensureOccurrencesForRange(userId, startDate, endDate)
+
+  const conditions = [
+    eq(tasks.userId, userId),
+    gte(taskOccurrences.date, startDate),
+    lte(taskOccurrences.date, endDate)
+  ]
+  if (projectId) {
+    conditions.push(eq(tasks.projectId, projectId))
+  }
 
   const results = await db
     .select({
@@ -361,13 +382,7 @@ export async function getOccurrencesInRange(
     })
     .from(taskOccurrences)
     .innerJoin(tasks, eq(tasks.id, taskOccurrences.taskId))
-    .where(
-      and(
-        eq(tasks.userId, userId),
-        gte(taskOccurrences.date, startDate),
-        lte(taskOccurrences.date, endDate)
-      )
-    )
+    .where(and(...conditions))
     .orderBy(taskOccurrences.date, tasks.name)
 
   return results
@@ -376,13 +391,23 @@ export async function getOccurrencesInRange(
 export async function getDailyProgressStats(
   userId: string,
   startDate: string,
-  endDate: string
+  endDate: string,
+  projectId?: string
 ) {
   await ensureOccurrencesForRange(userId, startDate, endDate)
 
   const dateSeries = sql<{ date: string }>`
     SELECT generate_series(${startDate}::date, ${endDate}::date, '1 day') AS date
   `
+
+  const conditions = [
+    eq(tasks.userId, userId),
+    gte(taskOccurrences.date, startDate),
+    lte(taskOccurrences.date, endDate)
+  ]
+  if (projectId) {
+    conditions.push(eq(tasks.projectId, projectId))
+  }
 
   const dailyStats = db
     .select({
@@ -392,13 +417,7 @@ export async function getDailyProgressStats(
     })
     .from(taskOccurrences)
     .innerJoin(tasks, eq(tasks.id, taskOccurrences.taskId))
-    .where(
-      and(
-        eq(tasks.userId, userId),
-        gte(taskOccurrences.date, startDate),
-        lte(taskOccurrences.date, endDate)
-      )
-    )
+    .where(and(...conditions))
     .groupBy(taskOccurrences.date)
     .as('daily_stats')
 
