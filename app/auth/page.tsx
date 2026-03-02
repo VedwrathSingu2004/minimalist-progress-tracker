@@ -29,6 +29,8 @@ import {
   CheckCircle2,
 } from 'lucide-react'
 import { qualyFontFamily } from '@/lib/fonts'
+import { signIn, signUp } from '@/lib/api/auth'
+import router from 'next/router'
 
 const GoogleIcon = ({ className }: { className?: string }) => (
   <svg
@@ -76,17 +78,29 @@ const AuthPage = () => {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
-    await new Promise((resolve) => setTimeout(resolve, 2000))
-    setIsLoading(false)
-    console.log('Login:', loginForm)
+    // setError('')
+    try {
+      await signIn(loginForm.email, loginForm.password, rememberMe)
+      router.push('/dashboard')
+    } catch (err) {
+      // setError(err.message)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
-    await new Promise((resolve) => setTimeout(resolve, 2000))
-    setIsLoading(false)
-    console.log('Signup:', signupForm)
+    // setError('')
+    try {
+      await signUp(signupForm.email, signupForm.password, signupForm.name)
+      router.push('/dashboard')
+    } catch (err) {
+      // setError(err.message)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   const handleSocialLogin = (provider: string) => {
