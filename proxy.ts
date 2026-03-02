@@ -13,7 +13,7 @@ export async function proxy(request: NextRequest) {
 
   // Redirect to sign-in if accessing protected route without session
   if (isProtectedPath && !session) {
-    return NextResponse.redirect(new URL('/auth/sign-in', request.url))
+    return NextResponse.redirect(new URL('/auth', request.url))
   }
 
   // Redirect to dashboard if accessing auth pages while logged in
