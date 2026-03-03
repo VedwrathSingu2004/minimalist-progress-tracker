@@ -20,6 +20,18 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { motion } from 'framer-motion'
+import { useRouter } from 'next/navigation'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { authClient } from '@/lib/auth/client'
 
 // ── Navigation Links ─────────────────────────────
 
@@ -32,7 +44,7 @@ const topLinks = [
 
 const bottomLinks = [
   { label: 'Settings', href: '/settings', icon: <Settings className='h-5 w-5 shrink-0' /> },
-  { label: 'Logout',   href: '/logout',   icon: <LogOut   className='h-5 w-5 shrink-0' /> },
+  { label: 'Logout',   href: '/#',   icon: <LogOut   className='h-5 w-5 shrink-0' /> },
 ]
 
 // ── Helper: check if a link is active ────────────
@@ -71,11 +83,56 @@ const UserCard = () => {
   )
 }
 
+const LogoutButton = ({
+  icon,
+  label,
+  onClick,
+}: {
+  icon: React.ReactNode
+  label: string
+  onClick: () => void
+}) => {
+  const { open, animate } = useSidebar()
+
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'flex items-center gap-2 rounded-lg px-2 py-2 text-sm text-muted-foreground transition-all hover:bg-accent hover:text-accent-foreground',
+        'group/sidebar-link w-full'
+      )}
+    >
+      {icon}
+      <motion.span
+        animate={{
+          display: animate ? (open ? 'inline' : 'none') : 'inline',
+          opacity: animate ? (open ? 1 : 0) : 1,
+        }}
+        className="text-sm"
+      >
+        {label}
+      </motion.span>
+    </button>
+  )
+}
+
 // ── Main Export ───────────────────────────────────
 
 export default function AppSidebar({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false)
   const pathname = usePathname()
+
+  const [logoutDialogOpen, setLogoutDialogOpen] = useState(false)
+  const router = useRouter()
+
+  const handleLogout = async () => {
+    try {
+      await authClient.signOut()
+      router.push('/auth')
+    } catch (error) {
+      console.error('Logout failed:', error)
+    }
+  }
 
   return (
     <div
@@ -106,13 +163,41 @@ export default function AppSidebar({ children }: { children: React.ReactNode }) 
 
           {/* ── Bottom section ── */}
           <div className='flex flex-col gap-1 border-t border-border pt-4'>
-            {bottomLinks.map((link, idx) => (
-              <SidebarLink
-                key={idx}
-                link={link}
-                active={isLinkActive(link.href, pathname)}
-              />
-            ))}
+            {bottomLinks.map((link, idx) => {
+              if (link.label === 'Logout') {
+                return (
+                  <LogoutButton
+                    key={idx}
+                    icon={link.icon}
+                    label={link.label}
+                    onClick={() => setLogoutDialogOpen(true)}
+                  />
+                )
+              }
+              return (
+                <SidebarLink
+                  key={idx}
+                  link={link}
+                  active={isLinkActive(link.href, pathname)}
+                />
+              )
+            })}
+            <AlertDialog open={logoutDialogOpen} onOpenChange={setLogoutDialogOpen}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Are you sure you want to log out?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    You will be redirected to the sign-in page. Any unsaved changes will be lost.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleLogout}>
+                    Log out
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
             <div className='mt-2 border-t border-border pt-3'>
               <UserCard />
             </div>

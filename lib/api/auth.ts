@@ -16,6 +16,7 @@ export async function signIn(email: string, password: string, rememberMe: boolea
     body: JSON.stringify({ email, password, rememberMe }),
   })
   const data = await res.json()
+  data.status = res.status
   if (!res.ok) throw new Error(data.message || 'Sign in failed')
   return data
 }

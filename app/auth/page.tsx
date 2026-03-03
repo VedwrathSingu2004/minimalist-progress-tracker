@@ -30,7 +30,7 @@ import {
 } from 'lucide-react'
 import { qualyFontFamily } from '@/lib/fonts'
 import { signIn, signUp } from '@/lib/api/auth'
-import router from 'next/router'
+import { useRouter } from 'next/navigation'
 
 const GoogleIcon = ({ className }: { className?: string }) => (
   <svg
@@ -74,14 +74,19 @@ const AuthPage = () => {
     confirmPassword: '',
   })
 
+  const router = useRouter()
+
   // ─── Handlers ───────────────────────────────────────────
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
     // setError('')
     try {
-      await signIn(loginForm.email, loginForm.password, rememberMe)
-      router.push('/dashboard')
+      const data = await signIn(loginForm.email, loginForm.password, rememberMe)
+      if (data.status === 200) {
+        router.refresh()
+        router.push('/dashboard')
+      }
     } catch (err) {
       // setError(err.message)
     } finally {
@@ -154,7 +159,7 @@ const AuthPage = () => {
 
   // ─── Render ─────────────────────────────────────────────
   return (
-    <div className='min-h-screen w-full flex flex-col items-center justify-center bg-background px-4 py-8 sm:px-6 lg:px-8'>
+    <div className='min-h-screen w-full flex flex-col items-center justify-center bg-background px-4 my-6 py-8 sm:px-6 lg:px-8'>
       {/* ─── Background Decorations ─── */}
       <div className='pointer-events-none fixed inset-0 overflow-hidden'>
         <div className='absolute -top-40 -right-40 h-80 w-80 rounded-full bg-primary/5 blur-3xl' />
