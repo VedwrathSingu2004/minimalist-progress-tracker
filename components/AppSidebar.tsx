@@ -17,6 +17,7 @@ import {
   LogOut,
   Zap,
   BarChart3,
+  NotebookText,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { motion } from 'framer-motion'
@@ -37,8 +38,9 @@ import { authClient } from '@/lib/auth/client'
 
 const topLinks = [
   { label: 'Dashboard',  href: '/dashboard', icon: <LayoutDashboard className='h-5 w-5 flex-shrink-0' /> },
-  { label: 'Calendar',   href: '/calendar',  icon: <CalendarDays    className='h-5 w-5 shrink-0' /> },
+  { label: 'Projects',  href: '/projects', icon: <NotebookText      className='h-5 w-5 shrink-0' /> },
   { label: 'Tasks',      href: '/tasks',     icon: <CheckSquare     className='h-5 w-5 shrink-0' /> },
+  { label: 'Calendar',   href: '/calendar',  icon: <CalendarDays    className='h-5 w-5 shrink-0' /> },
   { label: 'Analytics',  href: '/analytics', icon: <BarChart3       className='h-5 w-5 shrink-0' /> },
 ]
 

@@ -7,16 +7,16 @@ export async function proxy(request: NextRequest) {
     headers: request.headers,
   })
 
-  const isProtectedPath = request.nextUrl.pathname.startsWith('/dashboard') ||
-                         request.nextUrl.pathname.startsWith('/api/tasks')
+  const isProtectedPath = request.nextUrl.pathname.startsWith('/dashboard')    ||
+                          request.nextUrl.pathname.startsWith('/projects')     ||
+                          request.nextUrl.pathname.startsWith('/api/projects') ||
+                          request.nextUrl.pathname.startsWith('/api/tasks')
   const isAuthPath = request.nextUrl.pathname.startsWith('/auth')
 
-  // Redirect to sign-in if accessing protected route without session
   if (isProtectedPath && !session) {
     return NextResponse.redirect(new URL('/auth', request.url))
   }
 
-  // Redirect to dashboard if accessing auth pages while logged in
   if (isAuthPath && session) {
     return NextResponse.redirect(new URL('/dashboard', request.url))
   }
