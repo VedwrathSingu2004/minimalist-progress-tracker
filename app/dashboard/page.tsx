@@ -1,7 +1,6 @@
 'use client'
 
 import AddTaskForm from "@/components/Forms/CreateTaskForm"
-import CalendarTaskView from "@/components/TaskViews/CalendarTaskView"
 import TodayTaskView from "@/components/TaskViews/TodayTaskView"
 
 const DashboardPage = () => {

@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useParams, useRouter } from 'next/navigation'
 import { format } from 'date-fns'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -8,13 +9,6 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Calendar } from '@/components/ui/calendar'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import {
   Popover,
   PopoverContent,
@@ -36,9 +30,10 @@ import {
   Check,
   ArrowLeft,
   Info,
+  Loader2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useRouter } from 'next/navigation'
+import { fetchTaskById, updateTask, type Task } from '@/lib/api/tasks'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -63,14 +58,24 @@ interface TaskFormData {
   days: number[]
 }
 
-// ─── Initial data ────────────────────────────────────────────────────────────
-
-const initialTask: TaskFormData = {
-  taskName: 'Team Standup Meeting with Engineering & Design Departments',
-  taskType: 'recurring',
-  startDate: new Date('2025-01-15'),
-  endDate: new Date('2025-06-15'),
-  days: [1, 2, 3, 4, 5],
+// Helper to convert API task to form data
+function taskToFormData(task: Task): TaskFormData {
+  if (task.taskType === 'one_time') {
+    return {
+      taskName: task.name,
+      taskType: 'one_time',
+      date: task.startDate ? new Date(task.startDate + 'T00:00:00') : undefined,
+      days: [],
+    }
+  } else {
+    return {
+      taskName: task.name,
+      taskType: 'recurring',
+      startDate: task.startDate ? new Date(task.startDate + 'T00:00:00') : undefined,
+      endDate: task.endDate ? new Date(task.endDate + 'T00:00:00') : undefined,
+      days: task.days || [],
+    }
+  }
 }
 
 // ─── DatePicker sub-component ────────────────────────────────────────────────
@@ -153,64 +158,124 @@ const ReadOnlyValue = ({
 
 // ─── Main component ──────────────────────────────────────────────────────────
 
-const TaskDetail = () => {
+export default function TaskDetail() {
+  const router = useRouter()
+  const params = useParams()
+  const taskId = params.id as string
+
+  const [task, setTask] = useState<Task | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
   const [isEditing, setIsEditing] = useState(false)
-  const [taskData, setTaskData] = useState<TaskFormData>(initialTask)
-  const [editData, setEditData] = useState<TaskFormData>(initialTask)
+  const [taskData, setTaskData] = useState<TaskFormData | null>(null)
+  const [editData, setEditData] = useState<TaskFormData | null>(null)
+  const [isSaving, setIsSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const loadTask = async () => {
+      try {
+        setLoading(true)
+        const data = await fetchTaskById(taskId)
+        setTask(data)
+        const formData = taskToFormData(data)
+        setTaskData(formData)
+        setEditData(formData)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load task')
+      } finally {
+        setLoading(false)
+      }
+    }
+    loadTask()
+  }, [taskId])
 
   const handleEdit = () => {
+    if (!taskData) return
     setEditData({ ...taskData })
     setIsEditing(true)
+    setSaveError(null)
   }
 
   const handleCancel = () => {
+    if (!taskData) return
     setEditData({ ...taskData })
     setIsEditing(false)
+    setSaveError(null)
   }
 
-  const handleSave = () => {
-    setTaskData({ ...editData })
-    setIsEditing(false)
-    console.log('Saved:', editData)
-  }
+  const handleSave = async () => {
+    if (!editData || !task) return
+    setSaveError(null)
+    setIsSaving(true)
 
-  const handleTaskTypeChange = (value: 'one_time' | 'recurring') => {
-    setEditData((prev) => ({
-      ...prev,
-      taskType: value,
-      ...(value === 'one_time'
-        ? {
-            date: prev.startDate || new Date(),
-            startDate: undefined,
-            endDate: undefined,
-            days: [],
-          }
-        : {
-            startDate: prev.date || new Date(),
-            endDate: undefined,
-            date: undefined,
-            days: [],
-          }),
-    }))
+    try {
+      const payload: any = { name: editData.taskName }
+
+      if (editData.taskType === 'one_time' && editData.date) {
+        payload.startDate = format(editData.date, 'yyyy-MM-dd')
+        payload.endDate = null
+        payload.recurrenceDays = []
+      } else if (editData.taskType === 'recurring') {
+        if (editData.startDate) payload.startDate = format(editData.startDate, 'yyyy-MM-dd')
+        if (editData.endDate) payload.endDate = format(editData.endDate, 'yyyy-MM-dd')
+        payload.recurrenceDays = editData.days
+      }
+
+      await updateTask(task.id, payload)
+
+      const updatedFormData = { ...editData }
+      setTaskData(updatedFormData)
+      setTask({ ...task, ...payload })
+      setIsEditing(false)
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Failed to save')
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const toggleDay = (dayIndex: number) => {
-    setEditData((prev) => ({
-      ...prev,
-      days: prev.days.includes(dayIndex)
+    if (!editData) return
+    setEditData((prev) => {
+      if (!prev) return prev
+      const days = prev.days.includes(dayIndex)
         ? prev.days.filter((d) => d !== dayIndex)
-        : [...prev.days, dayIndex].sort(),
-    }))
+        : [...prev.days, dayIndex].sort()
+      return { ...prev, days }
+    })
   }
 
   const updateField = <K extends keyof TaskFormData>(
     key: K,
     value: TaskFormData[K]
   ) => {
-    setEditData((prev) => ({ ...prev, [key]: value }))
+    if (!editData) return
+    setEditData((prev) => {
+      if (!prev) return prev
+      return { ...prev, [key]: value }
+    })
   }
-  const router = useRouter()
-  const data = isEditing ? editData : taskData
+
+  if (loading) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  if (error || !taskData) {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center gap-2">
+        <p className="text-destructive">Error: {error || 'Task not found'}</p>
+        <Button onClick={() => router.back()}>Go Back</Button>
+      </div>
+    )
+  }
+
+  const data = isEditing ? editData! : taskData
 
   return (
     <div className='min-h-screen'>
@@ -243,6 +308,7 @@ const TaskDetail = () => {
                     size='sm'
                     className='gap-1.5 cursor-pointer'
                     onClick={handleCancel}
+                    disabled={isSaving}
                   >
                     <X className='h-4 w-4' />
                     Discard
@@ -251,8 +317,13 @@ const TaskDetail = () => {
                     size='sm'
                     className='gap-1.5 cursor-pointer'
                     onClick={handleSave}
+                    disabled={isSaving}
                   >
-                    <Check className='h-4 w-4' />
+                    {isSaving ? (
+                      <Loader2 className='h-4 w-4 animate-spin' />
+                    ) : (
+                      <Check className='h-4 w-4' />
+                    )}
                     Save
                   </Button>
                 </>
@@ -330,7 +401,7 @@ const TaskDetail = () => {
           >
             {isEditing ? (
               <Input
-                value={editData.taskName}
+                value={editData?.taskName || ''}
                 onChange={(e) => updateField('taskName', e.target.value)}
                 placeholder='Enter task name'
                 className='h-10'
@@ -342,52 +413,16 @@ const TaskDetail = () => {
 
           <Separator />
 
-          {/* ── Task Type ── */}
+          {/* ── Task Type ── (read‑only) */}
           <Section
             title='Task Type'
             description='Determines whether this task runs once or repeats.'
           >
-            <div className='space-y-2'>
-              {isEditing ? (
-                <Select
-                  value={editData.taskType}
-                  onValueChange={(v) =>
-                    handleTaskTypeChange(v as 'one_time' | 'recurring')
-                  }
-                >
-                  <SelectTrigger className='w-full sm:w-64 h-10'>
-                    <SelectValue placeholder='Select type' />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value='one_time'>
-                      <span className='flex items-center gap-2'>
-                        <CalendarClock className='h-4 w-4' />
-                        One-time
-                      </span>
-                    </SelectItem>
-                    <SelectItem value='recurring'>
-                      <span className='flex items-center gap-2'>
-                        <Repeat className='h-4 w-4' />
-                        Recurring
-                      </span>
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              ) : (
-                <ReadOnlyValue
-                  icon={data.taskType === 'recurring' ? Repeat : CalendarClock}
-                >
-                  {data.taskType === 'recurring' ? 'Recurring' : 'One-time'}
-                </ReadOnlyValue>
-              )}
-
-              {isEditing && (
-                <p className='text-[11px] text-muted-foreground flex items-start gap-1.5 mt-1'>
-                  <Info className='h-3 w-3 shrink-0 mt-0.5' />
-                  Changing task type will reset schedule fields.
-                </p>
-              )}
-            </div>
+            <ReadOnlyValue
+              icon={data.taskType === 'recurring' ? Repeat : CalendarClock}
+            >
+              {data.taskType === 'recurring' ? 'Recurring' : 'One-time'}
+            </ReadOnlyValue>
           </Section>
 
           <Separator />
@@ -406,7 +441,7 @@ const TaskDetail = () => {
                 <Label className='text-sm text-muted-foreground'>Date</Label>
                 {isEditing ? (
                   <DatePicker
-                    date={editData.date}
+                    date={editData?.date}
                     onSelect={(d) => updateField('date', d)}
                     placeholder='Pick a date'
                   />
@@ -424,15 +459,13 @@ const TaskDetail = () => {
                   </Label>
                   {isEditing ? (
                     <DatePicker
-                      date={editData.startDate}
+                      date={editData?.startDate}
                       onSelect={(d) => updateField('startDate', d)}
                       placeholder='Pick start date'
                     />
                   ) : (
                     <ReadOnlyValue icon={CalendarDays}>
-                      {data.startDate
-                        ? format(data.startDate, 'PPP')
-                        : '—'}
+                      {data.startDate ? format(data.startDate, 'PPP') : '—'}
                     </ReadOnlyValue>
                   )}
                 </div>
@@ -442,7 +475,7 @@ const TaskDetail = () => {
                   </Label>
                   {isEditing ? (
                     <DatePicker
-                      date={editData.endDate}
+                      date={editData?.endDate}
                       onSelect={(d) => updateField('endDate', d)}
                       placeholder='Pick end date'
                     />
@@ -538,7 +571,7 @@ const TaskDetail = () => {
                     </p>
                   )}
 
-                  {isEditing && editData.days.length === 0 && (
+                  {isEditing && editData?.days.length === 0 && (
                     <p className='text-xs text-destructive flex items-center gap-1.5'>
                       <Info className='h-3 w-3 shrink-0' />
                       Please select at least one day
@@ -549,7 +582,12 @@ const TaskDetail = () => {
             </>
           )}
 
-          {/* ── Bottom actions (edit mode) ── */}
+          {saveError && (
+            <div className='rounded-lg bg-destructive/10 p-3 text-sm text-destructive'>
+              Error: {saveError}
+            </div>
+          )}
+
           {isEditing && (
             <>
               <Separator />
@@ -558,6 +596,7 @@ const TaskDetail = () => {
                   variant='outline'
                   className='gap-1.5 cursor-pointer'
                   onClick={handleCancel}
+                  disabled={isSaving}
                 >
                   <X className='h-4 w-4' />
                   Discard
@@ -565,8 +604,13 @@ const TaskDetail = () => {
                 <Button
                   className='gap-1.5 cursor-pointer'
                   onClick={handleSave}
+                  disabled={isSaving}
                 >
-                  <Check className='h-4 w-4' />
+                  {isSaving ? (
+                    <Loader2 className='h-4 w-4 animate-spin' />
+                  ) : (
+                    <Check className='h-4 w-4' />
+                  )}
                   Save Changes
                 </Button>
               </div>
@@ -577,5 +621,3 @@ const TaskDetail = () => {
     </div>
   )
 }
-
-export default TaskDetail

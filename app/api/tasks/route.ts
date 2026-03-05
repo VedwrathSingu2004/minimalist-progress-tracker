@@ -1,5 +1,6 @@
 import { auth } from '@/better-auth.config'
 import db from '@/db'
+import taskRecurrenceDays from '@/db/schema/models/taskRecurrenceDays.model'
 import tasks from '@/db/schema/models/tasks.model'
 import { createTask } from '@/lib/services/task.service'
 import { and, eq, gte, lte } from 'drizzle-orm'
@@ -52,6 +53,7 @@ export async function GET(req: NextRequest) {
     const startDate = searchParams.get('startDate')
     const endDate = searchParams.get('endDate')
     const projectId = searchParams.get('projectId')
+    const taskId = searchParams.get('taskId')
 
     const conditions = [eq(tasks.userId, session.user.id)]
 
@@ -63,6 +65,10 @@ export async function GET(req: NextRequest) {
       conditions.push(lte(tasks.endDate, endDate))
     }
 
+    if (taskId) {
+      conditions.push(eq(tasks.id, taskId))
+    }
+
     if (projectId) {
       conditions.push(eq(tasks.projectId, projectId))
     }
@@ -72,9 +78,43 @@ export async function GET(req: NextRequest) {
       .from(tasks)
       .where(and(...conditions))
 
+    if (taskId) {
+      if (result.length === 0) {
+        return NextResponse.json({ error: 'Task not found' }, { status: 404 })
+      }
+
+      const task = result[0]
+
+      if (task.taskType === 'recurring') {
+        const days = await db
+          .select({ dayOfWeek: taskRecurrenceDays.dayOfWeek })
+          .from(taskRecurrenceDays)
+          .where(eq(taskRecurrenceDays.taskId, task.id))
+
+        return NextResponse.json({
+          success: true,
+          data: {
+            ...task,
+            days: days.map(d => d.dayOfWeek),
+          },
+        })
+      }
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          ...task,
+          recurrenceDays: [],
+        },
+      })
+    }
+
     return NextResponse.json({ success: true, data: result }, { status: 200 })
   } catch (error) {
     console.error('GET /tasks error:', error)
-    return NextResponse.json({ success: false, message: 'Internal Server Error' }, { status: 500 })
+    return NextResponse.json(
+      { success: false, message: 'Internal Server Error' },
+      { status: 500 }
+    )
   }
 }

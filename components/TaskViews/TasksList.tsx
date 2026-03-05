@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Card,
   CardContent,
@@ -21,36 +21,26 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
   CalendarDays,
   LayoutGrid,
   List,
   Repeat,
   CalendarClock,
   SquarePen,
+  FolderOpen,
+  Loader2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useRouter } from 'next/navigation'
-
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-interface BaseTask {
-  id: string
-  taskName: string
-}
-
-interface OneTimeTask extends BaseTask {
-  taskType: 'one_time'
-  date: string
-}
-
-interface RecurringTask extends BaseTask {
-  taskType: 'recurring'
-  startDate: string
-  endDate: string
-  days: number[] // 0 = Sun … 6 = Sat
-}
-
-type Task = OneTimeTask | RecurringTask
+import { fetchProjects } from '@/lib/api/projects'
+import { fetchTasks, Task } from '@/lib/api/tasks'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -64,69 +54,6 @@ const DAYS_OF_WEEK = [
   { label: 'S', full: 'Saturday', index: 6 },
 ] as const
 
-// ─── Sample data ─────────────────────────────────────────────────────────────
-
-const sampleTasks: Task[] = [
-  {
-    id: '1',
-    taskName:
-      'Team Standup Meeting with Engineering, Design, Product & Marketing Departments',
-    taskType: 'recurring',
-    startDate: '2025-01-15',
-    endDate: '2025-06-15',
-    days: [1, 2, 3, 4, 5],
-  },
-  {
-    id: '2',
-    taskName: 'Project Deadline Review',
-    taskType: 'one_time',
-    date: '2025-02-28',
-  },
-  {
-    id: '3',
-    taskName: 'Yoga & Meditation',
-    taskType: 'recurring',
-    startDate: '2025-01-01',
-    endDate: '2025-12-31',
-    days: [1, 3, 5],
-  },
-  {
-    id: '4',
-    taskName:
-      'Quarterly Report Submission for All Regional Offices Including International Branches and Subsidiaries',
-    taskType: 'one_time',
-    date: '2025-03-31',
-  },
-  {
-    id: '5',
-    taskName: 'Weekend Grocery Run',
-    taskType: 'recurring',
-    startDate: '2025-01-01',
-    endDate: '2025-12-31',
-    days: [0, 6],
-  },
-  {
-    id: '6',
-    taskName: 'Client Presentation',
-    taskType: 'one_time',
-    date: '2025-04-10',
-  },
-  {
-    id: '7',
-    taskName: 'Code Review Sessions',
-    taskType: 'recurring',
-    startDate: '2025-02-01',
-    endDate: '2025-08-01',
-    days: [2, 4],
-  },
-  {
-    id: '8',
-    taskName: 'Annual Health Checkup',
-    taskType: 'one_time',
-    date: '2025-05-20',
-  },
-]
-
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const formatDate = (dateStr: string) =>
@@ -136,7 +63,7 @@ const formatDate = (dateStr: string) =>
     year: 'numeric',
   })
 
-// ─── Sub-components ──────────────────────────────────────────────────────────
+// ─── Sub-components (unchanged) ─────────────────────────────────────────────
 
 const DayBadges = ({ activeDays }: { activeDays: number[] }) => (
   <TooltipProvider delayDuration={200}>
@@ -180,55 +107,71 @@ const TaskTypeBadge = ({ type }: { type: Task['taskType'] }) => (
   </Badge>
 )
 
+const ProjectBadge = ({ projectId, projects }: { projectId: string; projects: { id: string; name: string }[] }) => {
+  const projectName = projects.find(p => p.id === projectId)?.name ?? 'Unknown'
+  return (
+    <Badge
+      variant='outline'
+      className='shrink-0 gap-1 text-[11px] font-medium whitespace-nowrap text-muted-foreground'
+    >
+      <FolderOpen className='h-3 w-3 shrink-0' />
+      {projectName}
+    </Badge>
+  )
+}
+
 const DateDisplay = ({ task }: { task: Task }) => (
   <div className='flex items-center gap-2 text-sm text-muted-foreground min-w-0'>
     <CalendarDays className='h-4 w-4 shrink-0' />
     {task.taskType === 'one_time' ? (
-      <span className='truncate'>{formatDate(task.date)}</span>
+      <span className='truncate'>{task.startDate ? formatDate(task.startDate) : ''}</span>
     ) : (
       <span className='truncate whitespace-nowrap'>
-        {formatDate(task.startDate)} &mdash; {formatDate(task.endDate)}
+        {task.startDate ? formatDate(task.startDate) : ''} &mdash; {task.endDate ? formatDate(task.endDate) : ''}
       </span>
     )}
   </div>
 )
 
 const EditButton = ({ taskId }: { taskId: string }) => {
-    const router = useRouter()
-    return (
-        <TooltipProvider delayDuration={200}>
-            <Tooltip>
-            <TooltipTrigger asChild>
-                <Button
-                variant='ghost'
-                size='icon'
-                className='h-8 w-8 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200 cursor-pointer'
-                onClick={() => router.push(`/tasks/${taskId}`)}
-                aria-label='Edit task'
-                >
-                <SquarePen className='h-4 w-4' />
-                </Button>
-            </TooltipTrigger>
-            <TooltipContent side='bottom' className='text-xs'>
-                Edit task
-            </TooltipContent>
-            </Tooltip>
-        </TooltipProvider>
-    )
+  const router = useRouter()
+  return (
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant='ghost'
+            size='icon'
+            className='h-8 w-8 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200 cursor-pointer'
+            onClick={() => router.push(`/tasks/${taskId}`)}
+            aria-label='Edit task'
+          >
+            <SquarePen className='h-4 w-4' />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side='bottom' className='text-xs'>
+          Edit task
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
 }
 
 // ─── Grid card ───────────────────────────────────────────────────────────────
 
-const GridTaskCard = ({ task }: { task: Task }) => (
+const GridTaskCard = ({ task, projects }: { task: Task; projects: { id: string; name: string }[] }) => (
   <Card className='group relative overflow-hidden hover:shadow-lg transition-all duration-300 hover:border-primary/30 flex flex-col'>
     <CardHeader className='pb-3 overflow-hidden'>
-      {/* Top row: badge + edit (always visible, never pushed off) */}
+      {/* Top row: badges + edit */}
       <div className='flex items-center justify-between gap-2 mb-2'>
-        <TaskTypeBadge type={task.taskType} />
+        <div className='flex items-center gap-1.5 min-w-0 flex-wrap'>
+          <TaskTypeBadge type={task.taskType} />
+          <ProjectBadge projectId={task.projectId} projects={projects} />
+        </div>
         <EditButton taskId={task.id} />
       </div>
 
-      {/* Task name row: icon + title (title can wrap to 2 lines max) */}
+      {/* Task name row */}
       <div className='flex items-start gap-2.5 min-w-0'>
         <div
           className={cn(
@@ -248,14 +191,14 @@ const GridTaskCard = ({ task }: { task: Task }) => (
           <Tooltip>
             <TooltipTrigger asChild>
               <CardTitle className='text-sm font-semibold leading-snug line-clamp-2 min-w-0 wrap-break-word'>
-                {task.taskName}
+                {task.name}
               </CardTitle>
             </TooltipTrigger>
             <TooltipContent
               side='top'
               className='text-xs max-w-72 text-wrap'
             >
-              {task.taskName}
+              {task.name}
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
@@ -267,7 +210,7 @@ const GridTaskCard = ({ task }: { task: Task }) => (
 
       <DateDisplay task={task} />
 
-      {task.taskType === 'recurring' && (
+      {task.taskType === 'recurring' && task.days && (
         <>
           <Separator className='my-2!' />
           <div className='space-y-1.5'>
@@ -284,10 +227,10 @@ const GridTaskCard = ({ task }: { task: Task }) => (
 
 // ─── List card ───────────────────────────────────────────────────────────────
 
-const ListTaskCard = ({ task }: { task: Task }) => (
+const ListTaskCard = ({ task, projects }: { task: Task; projects: { id: string; name: string }[] }) => (
   <Card className='group hover:shadow-lg transition-all duration-300 hover:border-primary/30 overflow-hidden'>
     <CardContent className='flex flex-col sm:flex-row sm:items-center gap-4 py-4 px-5 overflow-hidden'>
-      {/* Icon + name + badge */}
+      {/* Icon + name + badges */}
       <div className='flex items-center gap-3 sm:flex-1 min-w-0 overflow-hidden'>
         <div
           className={cn(
@@ -308,18 +251,21 @@ const ListTaskCard = ({ task }: { task: Task }) => (
             <Tooltip>
               <TooltipTrigger asChild>
                 <p className='text-sm font-semibold truncate'>
-                  {task.taskName}
+                  {task.name}
                 </p>
               </TooltipTrigger>
               <TooltipContent
                 side='top'
                 className='text-xs max-w-80 text-wrap'
               >
-                {task.taskName}
+                {task.name}
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
-          <TaskTypeBadge type={task.taskType} />
+          <div className='flex items-center gap-1.5 flex-wrap'>
+            <TaskTypeBadge type={task.taskType} />
+            <ProjectBadge projectId={task.projectId} projects={projects} />
+          </div>
         </div>
       </div>
 
@@ -332,7 +278,7 @@ const ListTaskCard = ({ task }: { task: Task }) => (
       </div>
 
       {/* Day badges for recurring */}
-      {task.taskType === 'recurring' && (
+      {task.taskType === 'recurring' && task.days && (
         <>
           <Separator
             orientation='vertical'
@@ -348,12 +294,12 @@ const ListTaskCard = ({ task }: { task: Task }) => (
         </>
       )}
 
-      {/* Edit button — desktop: pinned right */}
+      {/* Edit button — desktop */}
       <div className='hidden sm:flex items-center shrink-0 ml-auto'>
         <EditButton taskId={task.id} />
       </div>
 
-      {/* Edit button — mobile: bottom-right */}
+      {/* Edit button — mobile */}
       <div className='sm:hidden flex justify-end'>
         <EditButton taskId={task.id} />
       </div>
@@ -365,13 +311,69 @@ const ListTaskCard = ({ task }: { task: Task }) => (
 
 const TasksList = () => {
   const [layout, setLayout] = useState<string>('grid')
+  const [selectedProjectId, setSelectedProjectId] = useState<string>('all')
+  const [projects, setProjects] = useState<{ id: string; name: string }[]>([])
+  const [tasks, setTasks] = useState<Task[]>([])
+  const [loadingProjects, setLoadingProjects] = useState(true)
+  const [loadingTasks, setLoadingTasks] = useState(false)
+  const [projectsError, setProjectsError] = useState<string | null>(null)
+  const [tasksError, setTasksError] = useState<string | null>(null)
 
-  const recurringCount = sampleTasks.filter(
-    (t) => t.taskType === 'recurring'
-  ).length
-  const oneTimeCount = sampleTasks.filter(
-    (t) => t.taskType === 'one_time'
-  ).length
+  // Fetch projects on mount
+  useEffect(() => {
+    const loadProjects = async () => {
+      try {
+        const data = await fetchProjects()
+        setProjects(data)
+      } catch (err) {
+        setProjectsError(err instanceof Error ? err.message : 'An unknown error occurred')
+      } finally {
+        setLoadingProjects(false)
+      }
+    }
+    loadProjects()
+  }, [])
+
+  // Fetch tasks when selected project changes
+  useEffect(() => {
+    const loadTasks = async () => {
+      setLoadingTasks(true)
+      setTasksError(null)
+      try {
+        const projectId = selectedProjectId === 'all' ? undefined : selectedProjectId
+        const data = await fetchTasks(projectId)
+        setTasks(data)
+      } catch (err) {
+        setTasksError(err instanceof Error ? err.message : 'An unknown error occurred')
+      } finally {
+        setLoadingTasks(false)
+      }
+    }
+    // Only fetch if projects are loaded (or we can fetch anyway)
+    if (!loadingProjects) {
+      loadTasks()
+    }
+  }, [selectedProjectId, loadingProjects])
+
+  const recurringCount = tasks.filter(t => t.taskType === 'recurring').length
+  const oneTimeCount = tasks.filter(t => t.taskType === 'one_time').length
+
+  if (loadingProjects) {
+    return (
+      <div className="flex h-[50vh] items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  if (projectsError) {
+    return (
+      <div className="flex h-[50vh] flex-col items-center justify-center gap-2">
+        <p className="text-destructive">Error loading projects: {projectsError}</p>
+        <Button onClick={() => window.location.reload()}>Retry</Button>
+      </div>
+    )
+  }
 
   return (
     <div className='w-full max-w-6xl mx-auto p-6 space-y-6 overflow-hidden'>
@@ -386,29 +388,53 @@ const TasksList = () => {
           </p>
         </div>
 
-        <ToggleGroup
-          type='single'
-          value={layout}
-          onValueChange={(v) => {
-            if (v) setLayout(v)
-          }}
-          className='border rounded-lg p-1 bg-muted/40 shrink-0'
-        >
-          <ToggleGroupItem
-            value='grid'
-            aria-label='Grid view'
-            className='gap-1.5 px-3 data-[state=on]:bg-background data-[state=on]:shadow-sm'
+        <div className='flex items-center gap-3 shrink-0 flex-wrap'>
+          {/* Project filter dropdown */}
+          <Select
+            value={selectedProjectId}
+            onValueChange={setSelectedProjectId}
           >
-            <LayoutGrid className='h-4 w-4' />
-          </ToggleGroupItem>
-          <ToggleGroupItem
-            value='list'
-            aria-label='List view'
-            className='gap-1.5 px-3 data-[state=on]:bg-background data-[state=on]:shadow-sm'
+            <SelectTrigger className='w-50'>
+              <div className='flex items-center gap-2'>
+                <FolderOpen className='h-4 w-4 shrink-0 text-muted-foreground' />
+                <SelectValue placeholder='Filter by project' />
+              </div>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value='all'>All Projects</SelectItem>
+              {projects.map((project) => (
+                <SelectItem key={project.id} value={project.id}>
+                  {project.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {/* Layout toggle */}
+          <ToggleGroup
+            type='single'
+            value={layout}
+            onValueChange={(v) => {
+              if (v) setLayout(v)
+            }}
+            className='border rounded-lg p-1 bg-muted/40 shrink-0'
           >
-            <List className='h-4 w-4' />
-          </ToggleGroupItem>
-        </ToggleGroup>
+            <ToggleGroupItem
+              value='grid'
+              aria-label='Grid view'
+              className='gap-1.5 px-3 data-[state=on]:bg-background data-[state=on]:shadow-sm'
+            >
+              <LayoutGrid className='h-4 w-4' />
+            </ToggleGroupItem>
+            <ToggleGroupItem
+              value='list'
+              aria-label='List view'
+              className='gap-1.5 px-3 data-[state=on]:bg-background data-[state=on]:shadow-sm'
+            >
+              <List className='h-4 w-4' />
+            </ToggleGroupItem>
+          </ToggleGroup>
+        </div>
       </div>
 
       <Separator />
@@ -416,7 +442,7 @@ const TasksList = () => {
       {/* ── Summary ── */}
       <div className='flex items-center gap-3 text-sm flex-wrap'>
         <Badge variant='outline' className='gap-1 font-normal whitespace-nowrap'>
-          {sampleTasks.length} total
+          {tasks.length} total
         </Badge>
         <Separator orientation='vertical' className='h-4' />
         <Badge
@@ -431,25 +457,63 @@ const TasksList = () => {
           <CalendarClock className='h-3 w-3 shrink-0' />
           {oneTimeCount} one-time
         </Badge>
+        {selectedProjectId !== 'all' && (
+          <>
+            <Separator orientation='vertical' className='h-4' />
+            <Badge
+              variant='outline'
+              className='gap-1 font-normal whitespace-nowrap text-muted-foreground'
+            >
+              <FolderOpen className='h-3 w-3 shrink-0' />
+              {projects.find(p => p.id === selectedProjectId)?.name ?? 'Unknown'}
+            </Badge>
+          </>
+        )}
       </div>
 
-      {/* ── Task cards ── */}
-      <div
-        className={cn(
-          'transition-all duration-300',
-          layout === 'grid'
-            ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4'
-            : 'flex flex-col gap-3'
-        )}
-      >
-        {sampleTasks.map((task) =>
-          layout === 'grid' ? (
-            <GridTaskCard key={task.id} task={task} />
-          ) : (
-            <ListTaskCard key={task.id} task={task} />
-          )
-        )}
-      </div>
+      {/* ── Loading / Error / Task cards ── */}
+      {loadingTasks ? (
+        <div className="flex h-[40vh] items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      ) : tasksError ? (
+        <div className="flex h-[40vh] flex-col items-center justify-center gap-2">
+          <p className="text-destructive">Error loading tasks: {tasksError}</p>
+          <Button onClick={() => {
+            const projectId = selectedProjectId === 'all' ? undefined : selectedProjectId
+            fetchTasks(projectId).then(setTasks).catch(e => setTasksError(e.message))
+          }}>Retry</Button>
+        </div>
+      ) : tasks.length === 0 ? (
+        <div className='flex flex-col items-center justify-center py-16 text-center'>
+          <FolderOpen className='h-12 w-12 text-muted-foreground/40 mb-4' />
+          <p className='text-lg font-medium text-muted-foreground'>
+            No tasks found
+          </p>
+          <p className='text-sm text-muted-foreground/70'>
+            {selectedProjectId === 'all'
+              ? 'Get started by creating your first task.'
+              : 'No tasks match the selected project filter.'}
+          </p>
+        </div>
+      ) : (
+        <div
+          className={cn(
+            'transition-all duration-300',
+            layout === 'grid'
+              ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4'
+              : 'flex flex-col gap-3'
+          )}
+        >
+          {tasks.map((task) =>
+            layout === 'grid' ? (
+              <GridTaskCard key={task.id} task={task} projects={projects} />
+            ) : (
+              <ListTaskCard key={task.id} task={task} projects={projects} />
+            )
+          )}
+        </div>
+      )}
     </div>
   )
 }
