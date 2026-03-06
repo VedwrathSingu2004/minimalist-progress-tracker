@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import {
   Card,
   CardContent,
@@ -13,89 +13,35 @@ import { Badge } from "@/components/ui/badge"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Loader2 } from "lucide-react"
 import { qualyFontFamily } from "@/lib/fonts"
+import { fetchTodayTasks, toggleOccurrence, type TodayTask } from "@/lib/api/tasks"
 
-type DayOfWeek = "sun" | "mon" | "tue" | "wed" | "thu" | "fri" | "sat"
-
-interface Task {
-  id: string
-  name: string
-  taskType: "one_time" | "recurring"
-  completed: boolean
-  date?: string
-  days?: DayOfWeek[]
+const dayLabels: Record<number, string> = {
+  0: "S",
+  1: "M",
+  2: "T",
+  3: "W",
+  4: "T",
+  5: "F",
+  6: "S",
 }
 
-const dayLabels: Record<DayOfWeek, string> = {
-  sun: "S",
-  mon: "M",
-  tue: "T",
-  wed: "W",
-  thu: "T",
-  fri: "F",
-  sat: "S",
+const dayFullLabels: Record<number, string> = {
+  0: "Sunday",
+  1: "Monday",
+  2: "Tuesday",
+  3: "Wednesday",
+  4: "Thursday",
+  5: "Friday",
+  6: "Saturday",
 }
 
-const dayFullLabels: Record<DayOfWeek, string> = {
-  sun: "Sunday",
-  mon: "Monday",
-  tue: "Tuesday",
-  wed: "Wednesday",
-  thu: "Thursday",
-  fri: "Friday",
-  sat: "Saturday",
-}
-
-const allDays: DayOfWeek[] = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]
-
-const sampleTasks: Task[] = [
-  {
-    id: "1",
-    name: "Morning Standup",
-    taskType: "recurring",
-    completed: false,
-    days: ["mon", "tue", "wed", "thu", "fri"],
-  },
-  {
-    id: "2",
-    name: "Submit Report",
-    taskType: "one_time",
-    completed: false,
-    date: "2025-01-15",
-  },
-  {
-    id: "3",
-    name: "Gym Workout",
-    taskType: "recurring",
-    completed: true,
-    days: ["mon", "wed", "fri"],
-  },
-  {
-    id: "4",
-    name: "Dentist Appointment",
-    taskType: "one_time",
-    completed: false,
-    date: "2025-01-15",
-  },
-  {
-    id: "5",
-    name: "Read 30 Minutes",
-    taskType: "recurring",
-    completed: false,
-    days: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
-  },
-  {
-    id: "6",
-    name: "Team Retrospective",
-    taskType: "recurring",
-    completed: false,
-    days: ["fri"],
-  },
-]
+const allDays = [0, 1, 2, 3, 4, 5, 6]
 
 interface TaskCardProps {
-  task: Task
-  onToggle: (id: string, checked: boolean) => void
+  task: TodayTask
+  onToggle: (occurrenceId: string, checked: boolean) => void
 }
 
 function TaskCard({ task, onToggle }: TaskCardProps) {
@@ -103,11 +49,11 @@ function TaskCard({ task, onToggle }: TaskCardProps) {
     <Card
       role="button"
       tabIndex={0}
-      onClick={() => onToggle(task.id, !task.completed)}
+      onClick={() => onToggle(task.occurrenceId, !task.completed)}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault()
-          onToggle(task.id, !task.completed)
+          onToggle(task.occurrenceId, !task.completed)
         }
       }}
       className={`
@@ -123,28 +69,24 @@ function TaskCard({ task, onToggle }: TaskCardProps) {
         {/* Checkbox + Task Name */}
         <div className="flex items-center gap-3">
           <Checkbox
-            id={`task-${task.id}`}
+            id={`task-${task.occurrenceId}`}
             checked={task.completed}
             onCheckedChange={(checked) =>
-              onToggle(task.id, checked as boolean)
+              onToggle(task.occurrenceId, checked as boolean)
             }
             onClick={(e) => e.stopPropagation()}
           />
           <Label
-            htmlFor={`task-${task.id}`}
+            htmlFor={`task-${task.occurrenceId}`}
             className={`
-              ${
-                task.completed
-                  ? "line-through text-muted-foreground"
-                  : ""
-              }
+              ${task.completed ? "line-through text-muted-foreground" : ""}
               text-2xl
               pointer-events-none
               select-none
               ${qualyFontFamily.className}
             `}
           >
-            {task.name}
+            {task.taskName}
           </Label>
 
           <Badge variant="outline" className="ml-auto select-none">
@@ -152,7 +94,7 @@ function TaskCard({ task, onToggle }: TaskCardProps) {
           </Badge>
         </div>
 
-        {/* Recurring → Day Chips */}
+        {/* Recurring → Day Chips (if days available) */}
         {task.taskType === "recurring" && task.days && (
           <div className="flex items-center opacity-80 gap-1.5 pl-7">
             {allDays.map((day) => (
@@ -169,10 +111,10 @@ function TaskCard({ task, onToggle }: TaskCardProps) {
         )}
 
         {/* One-time → Show date */}
-        {task.taskType === "one_time" && task.date && (
+        {task.taskType === "one_time" && (
           <div className="pl-7">
             <Badge variant="secondary" className="select-none">
-              {task.date}
+              {new Date(task.date + 'T00:00:00').toLocaleDateString()}
             </Badge>
           </div>
         )}
@@ -181,31 +123,75 @@ function TaskCard({ task, onToggle }: TaskCardProps) {
   )
 }
 
-interface TodayTaskViewProps {
-  tasks?: Task[]
-}
+export default function TodayTaskView() {
+  const [tasks, setTasks] = useState<TodayTask[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-export default function TodayTaskView({
-  tasks = sampleTasks,
-}: TodayTaskViewProps) {
-  const [taskList, setTaskList] = useState<Task[]>(tasks)
+  useEffect(() => {
+    const loadTasks = async () => {
+      try {
+        setLoading(true)
+        const data = await fetchTodayTasks()
+        setTasks(data)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load tasks')
+      } finally {
+        setLoading(false)
+      }
+    }
+    loadTasks()
+  }, [])
 
-  const completedCount = taskList.filter((t) => t.completed).length
-
-  const handleToggle = (id: string, checked: boolean) => {
-    setTaskList((prev) =>
-      prev.map((task) =>
-        task.id === id ? { ...task, completed: checked } : task
+  const handleToggle = async (occurrenceId: string, checked: boolean) => {
+    // Optimistic update
+    setTasks(prev =>
+      prev.map(t =>
+        t.occurrenceId === occurrenceId ? { ...t, completed: checked } : t
       )
+    )
+
+    try {
+      await toggleOccurrence(occurrenceId)
+    } catch (err) {
+      // Revert on error
+      setTasks(prev =>
+        prev.map(t =>
+          t.occurrenceId === occurrenceId ? { ...t, completed: !checked } : t
+        )
+      )
+      console.error('Toggle failed:', err)
+    }
+  }
+
+  const completedCount = tasks.filter(t => t.completed).length
+
+  if (loading) {
+    return (
+      <Card>
+        <CardContent className="flex items-center justify-center py-8">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (error) {
+    return (
+      <Card>
+        <CardContent className="flex items-center justify-center py-8 text-destructive">
+          Error: {error}
+        </CardContent>
+      </Card>
     )
   }
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className={`text-2xl`}>Today&apos;</CardTitle>
+        <CardTitle className={`text-2xl`}>Today's Tasks</CardTitle>
         <CardDescription>
-          {completedCount} of {taskList.length} tasks completed
+          {completedCount} of {tasks.length} tasks completed
         </CardDescription>
       </CardHeader>
 
@@ -214,7 +200,7 @@ export default function TodayTaskView({
       <CardContent>
         <ScrollArea className="h-125 pr-4">
           <div className="flex flex-col gap-3">
-            {taskList.length === 0 && (
+            {tasks.length === 0 && (
               <Card>
                 <CardContent className="flex items-center justify-center py-8">
                   <p className="text-muted-foreground">
@@ -224,9 +210,9 @@ export default function TodayTaskView({
               </Card>
             )}
 
-            {taskList.map((task) => (
+            {tasks.map((task) => (
               <TaskCard
-                key={task.id}
+                key={task.occurrenceId}
                 task={task}
                 onToggle={handleToggle}
               />

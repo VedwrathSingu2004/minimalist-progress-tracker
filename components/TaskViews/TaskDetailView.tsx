@@ -216,7 +216,6 @@ export default function TaskDetail() {
       if (editData.taskType === 'one_time' && editData.date) {
         payload.startDate = format(editData.date, 'yyyy-MM-dd')
         payload.endDate = null
-        payload.recurrenceDays = []
       } else if (editData.taskType === 'recurring') {
         if (editData.startDate) payload.startDate = format(editData.startDate, 'yyyy-MM-dd')
         if (editData.endDate) payload.endDate = format(editData.endDate, 'yyyy-MM-dd')

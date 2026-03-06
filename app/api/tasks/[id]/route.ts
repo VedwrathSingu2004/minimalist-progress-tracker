@@ -62,7 +62,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
     const { id } = await params
     const body = await request.json()
-    const { name, endDate, recurrenceDays, projectId } = body
+    const { name, startDate, endDate, recurrenceDays, projectId } = body
 
     if (name === undefined && endDate === undefined && recurrenceDays === undefined && projectId === undefined) {
       return NextResponse.json({ error: 'No fields to update' }, { status: 400 })
@@ -92,6 +92,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       id,
       userId: session.user.id,
       name,
+      startDate,
       endDate,
       recurrenceDays,
       projectId,

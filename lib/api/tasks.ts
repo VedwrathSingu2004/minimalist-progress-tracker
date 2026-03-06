@@ -76,6 +76,7 @@ export async function updateTask(
   id: string,
   data: Partial<{
     name: string
+    startDate: string | null
     endDate: string | null
     recurrenceDays: number[]
     projectId: string
@@ -92,4 +93,31 @@ export async function updateTask(
     throw new Error(result.error || 'Failed to update task')
   }
   return result
+}
+
+export interface TodayTask {
+  occurrenceId: string
+  taskId: string
+  taskName: string
+  taskType: 'one_time' | 'recurring'
+  date: string
+  completed: boolean
+  days?: number[]
+}
+
+export async function fetchTodayTasks(): Promise<TodayTask[]> {
+  const res = await fetch('/api/tasks/today')
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error || 'Failed to fetch today\'s tasks')
+  return data.data
+}
+
+export async function toggleOccurrence(occurrenceId: string): Promise<{ success: boolean; data: any }> {
+  const res = await fetch(`/api/tasks/occurrences/${occurrenceId}/toggle`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error || 'Failed to toggle task')
+  return data
 }

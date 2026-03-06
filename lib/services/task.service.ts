@@ -150,13 +150,14 @@ export interface IUpdateTask {
   id: string
   userId: string
   name?: string
+  startDate?: string | null
   endDate?: string | null
   recurrenceDays?: number[]
   projectId?: string | null
 }
 
 export async function updateTask(input: IUpdateTask) {
-  const { id, userId, name, endDate, recurrenceDays, projectId } = input
+  const { id, userId, name, startDate, endDate, recurrenceDays, projectId } = input
 
   const existingTasks = await db
     .select()
@@ -170,20 +171,13 @@ export async function updateTask(input: IUpdateTask) {
 
   const existingTask = existingTasks[0]
 
-  if (projectId !== undefined && projectId !== null) {
-    const project = await db
-      .select({ id: projects.id })
-      .from(projects)
-      .where(and(eq(projects.id, projectId), eq(projects.userId, userId)))
-      .limit(1)
-    if (project.length === 0) {
-      throw new Error('Project not found or access denied')
-    }
-  }
-
   return await db.transaction(async (tx) => {
     const updateData: Partial<typeof tasks.$inferInsert> = {}
+    
     if (name !== undefined) updateData.name = name
+    if (startDate !== undefined && startDate !== null) {
+      updateData.startDate = startDate
+    }
     if (endDate !== undefined) updateData.endDate = endDate
     if (projectId !== undefined) updateData.projectId = projectId
 

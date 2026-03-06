@@ -20,7 +20,7 @@ export async function POST(
 
     const updatedOccurrence = await toggleOccurrence(occurrenceId, session.user.id)
 
-    return NextResponse.json({ success: true, data: updatedOccurrence }, { status: 302 })
+    return NextResponse.json({ success: true, data: updatedOccurrence }, { status: 200 })
   } catch (error) {
     console.error('Error toggling occurrence:', error)
     if (error instanceof Error && error.message === 'Occurrence not found or access denied') {

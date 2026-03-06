@@ -9,6 +9,7 @@ export async function proxy(request: NextRequest) {
 
   const isProtectedPath = request.nextUrl.pathname.startsWith('/dashboard')    ||
                           request.nextUrl.pathname.startsWith('/projects')     ||
+                          request.nextUrl.pathname.startsWith('/tasks')     ||
                           request.nextUrl.pathname.startsWith('/api/projects') ||
                           request.nextUrl.pathname.startsWith('/api/tasks')
   const isAuthPath = request.nextUrl.pathname.startsWith('/auth')
