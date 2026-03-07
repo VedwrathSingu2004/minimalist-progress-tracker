@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   Card,
   CardContent,
@@ -36,11 +36,14 @@ import {
   SquarePen,
   FolderOpen,
   Loader2,
+  Check,
+  Trash2,
+  X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useRouter } from 'next/navigation'
 import { fetchProjects } from '@/lib/api/projects'
-import { fetchTasks, Task } from '@/lib/api/tasks'
+import { fetchTasks, deleteTask, type Task } from '@/lib/api/tasks'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -63,7 +66,7 @@ const formatDate = (dateStr: string) =>
     year: 'numeric',
   })
 
-// ─── Sub-components (unchanged) ─────────────────────────────────────────────
+// ─── Sub-components ─────────────────────────────────────────────────────────
 
 const DayBadges = ({ activeDays }: { activeDays: number[] }) => (
   <TooltipProvider delayDuration={200}>
@@ -157,21 +160,133 @@ const EditButton = ({ taskId }: { taskId: string }) => {
   )
 }
 
+const DeleteButton = ({ taskId, onDelete }: { taskId: string; onDelete: (id: string) => void }) => {
+  const [isConfirming, setIsConfirming] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!isConfirming) return
+
+    const timeout = setTimeout(() => setIsConfirming(false), 4000)
+
+    const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') setIsConfirming(false) }
+    const onClickOutside = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setIsConfirming(false) }
+
+    document.addEventListener('keydown', onKeyDown)
+    document.addEventListener('mousedown', onClickOutside)
+    
+    return () => {
+      clearTimeout(timeout)
+      document.removeEventListener('keydown', onKeyDown)
+      document.removeEventListener('mousedown', onClickOutside)
+    }
+  }, [isConfirming])
+
+  const handleConfirm = async () => {
+    setIsDeleting(true)
+    try {
+      await deleteTask(taskId)
+      onDelete(taskId)
+    } catch (error) {
+      console.error('Delete failed:', error)
+      // Optionally show error toast
+    } finally {
+      setIsDeleting(false)
+      setIsConfirming(false)
+    }
+  }
+
+  return (
+    <TooltipProvider delayDuration={200}>
+      <div 
+        ref={ref} 
+        className='flex items-center overflow-hidden transition-all duration-250 ease-out'
+        style={{ width: isConfirming ? 112 : 32 }}
+      >
+        <Tooltip open={isConfirming ? false : undefined}>
+          <TooltipTrigger asChild>
+            <Button
+              variant='ghost'
+              size='icon'
+              disabled={isDeleting}
+              className={cn(
+                'h-8 w-8 shrink-0 transition-opacity duration-200 cursor-pointer',
+                !isConfirming && 'opacity-0 group-hover:opacity-100',
+                isConfirming && 'opacity-100',
+              )}
+              onClick={(e) => {
+                e.stopPropagation()
+                setIsConfirming(true)
+              }}
+              aria-label='Delete task'
+            >
+              {isDeleting 
+                ? <Loader2 className='h-3.5 w-3.5 animate-spin' />
+                : <Trash2 className='h-3.5 w-3.5' />
+              }
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side='bottom' className='text-xs'>
+            Delete task
+          </TooltipContent>
+        </Tooltip>
+
+        {isConfirming && !isDeleting && (
+          <div className='flex items-center text-xs'>
+            <Button
+              variant='ghost'
+              size='icon'
+              className='h-8 w-6 text-muted-foreground'
+              onClick={(e) => {
+                e.stopPropagation()
+                setIsConfirming(false)
+              }}
+            >
+              <X className='h-3.5 w-3.5' />
+            </Button>
+            <Button
+              variant='ghost'
+              size='icon'
+              className='h-8 w-6 text-destructive hover:text-destructive hover:bg-destructive/10'
+              onClick={(e) => {
+                e.stopPropagation()
+                void handleConfirm()
+              }}
+            >
+              <Check className='h-3.5 w-3.5' />
+            </Button>
+          </div>
+        )}
+      </div>
+    </TooltipProvider>
+  )
+}
+
 // ─── Grid card ───────────────────────────────────────────────────────────────
 
-const GridTaskCard = ({ task, projects }: { task: Task; projects: { id: string; name: string }[] }) => (
+const GridTaskCard = ({ 
+  task, 
+  projects,
+  onDelete 
+}: { 
+  task: Task; 
+  projects: { id: string; name: string }[];
+  onDelete: (id: string) => void;
+}) => (
   <Card className='group relative overflow-hidden hover:shadow-lg transition-all duration-300 hover:border-primary/30 flex flex-col'>
     <CardHeader className='pb-3 overflow-hidden'>
-      {/* Top row: badges + edit */}
       <div className='flex items-center justify-between gap-2 mb-2'>
         <div className='flex items-center gap-1.5 min-w-0 flex-wrap'>
           <TaskTypeBadge type={task.taskType} />
           <ProjectBadge projectId={task.projectId} projects={projects} />
         </div>
-        <EditButton taskId={task.id} />
+        <div className='flex items-center gap-1'>
+          <EditButton taskId={task.id} />
+          <DeleteButton taskId={task.id} onDelete={onDelete} />
+        </div>
       </div>
 
-      {/* Task name row */}
       <div className='flex items-start gap-2.5 min-w-0'>
         <div
           className={cn(
@@ -227,7 +342,15 @@ const GridTaskCard = ({ task, projects }: { task: Task; projects: { id: string; 
 
 // ─── List card ───────────────────────────────────────────────────────────────
 
-const ListTaskCard = ({ task, projects }: { task: Task; projects: { id: string; name: string }[] }) => (
+const ListTaskCard = ({ 
+  task, 
+  projects,
+  onDelete 
+}: { 
+  task: Task; 
+  projects: { id: string; name: string }[];
+  onDelete: (id: string) => void;
+}) => (
   <Card className='group hover:shadow-lg transition-all duration-300 hover:border-primary/30 overflow-hidden'>
     <CardContent className='flex flex-col sm:flex-row sm:items-center gap-4 py-4 px-5 overflow-hidden'>
       {/* Icon + name + badges */}
@@ -294,14 +417,16 @@ const ListTaskCard = ({ task, projects }: { task: Task; projects: { id: string; 
         </>
       )}
 
-      {/* Edit button — desktop */}
-      <div className='hidden sm:flex items-center shrink-0 ml-auto'>
+      {/* Edit + Delete buttons — desktop */}
+      <div className='hidden sm:flex items-center shrink-0 ml-auto gap-1'>
         <EditButton taskId={task.id} />
+        <DeleteButton taskId={task.id} onDelete={onDelete} />
       </div>
 
-      {/* Edit button — mobile */}
-      <div className='sm:hidden flex justify-end'>
+      {/* Edit + Delete buttons — mobile */}
+      <div className='sm:hidden flex justify-end gap-1'>
         <EditButton taskId={task.id} />
+        <DeleteButton taskId={task.id} onDelete={onDelete} />
       </div>
     </CardContent>
   </Card>
@@ -349,11 +474,14 @@ const TasksList = () => {
         setLoadingTasks(false)
       }
     }
-    // Only fetch if projects are loaded (or we can fetch anyway)
     if (!loadingProjects) {
       loadTasks()
     }
   }, [selectedProjectId, loadingProjects])
+
+  const handleDeleteTask = (deletedId: string) => {
+    setTasks(prev => prev.filter(task => task.id !== deletedId))
+  }
 
   const recurringCount = tasks.filter(t => t.taskType === 'recurring').length
   const oneTimeCount = tasks.filter(t => t.taskType === 'one_time').length
@@ -507,9 +635,19 @@ const TasksList = () => {
         >
           {tasks.map((task) =>
             layout === 'grid' ? (
-              <GridTaskCard key={task.id} task={task} projects={projects} />
+              <GridTaskCard
+                key={task.id}
+                task={task}
+                projects={projects}
+                onDelete={handleDeleteTask}
+              />
             ) : (
-              <ListTaskCard key={task.id} task={task} projects={projects} />
+              <ListTaskCard
+                key={task.id}
+                task={task}
+                projects={projects}
+                onDelete={handleDeleteTask}
+              />
             )
           )}
         </div>

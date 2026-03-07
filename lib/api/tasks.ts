@@ -95,6 +95,16 @@ export async function updateTask(
   return result
 }
 
+export async function deleteTask(id: string): Promise<{ success: boolean }> {
+  const res = await fetch(`/api/tasks/${id}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+  })
+  const result = await res.json()
+  if (!res.ok) throw new Error(result.error || 'Failed to delete task')
+  return result
+}
+
 export interface TodayTask {
   occurrenceId: string
   taskId: string
