@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import {
   Plus,
   FolderOpen,
@@ -9,6 +9,9 @@ import {
   ArrowDownUp,
   AlertCircle,
   RefreshCw,
+  Trash2,
+  X,
+  Check,
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -45,17 +48,124 @@ import {
   AlertDescription,
   AlertTitle,
 } from '@/components/ui/alert'
-import { createProject, fetchProjects, Project } from '@/lib/api/projects'
-
-// interface Project {
-//   id: string
-//   name: string
-//   description: string
-//   createdAt: string
-//   updatedAt: string
-// }
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import { createProject, deleteProject, fetchProjects, Project } from '@/lib/api/projects'
+import { cn } from '@/lib/utils'
 
 type SortOrder = 'desc' | 'asc'
+
+// ─── Delete Button Component ──────────────────────────────
+
+const DeleteButton = ({ projectId, onDelete }: { projectId: string; onDelete: (id: string) => void }) => {
+  const [isConfirming, setIsConfirming] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  // Auto reset after 4 seconds
+  useEffect(() => {
+    if (!isConfirming) return
+
+    const timeout = setTimeout(() => setIsConfirming(false), 4000)
+
+    const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') setIsConfirming(false) }
+    const onClickOutside = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setIsConfirming(false) }
+
+    document.addEventListener('keydown', onKeyDown)
+    document.addEventListener('mousedown', onClickOutside)
+    
+    return () => {
+      clearTimeout(timeout)
+      document.removeEventListener('keydown', onKeyDown)
+      document.removeEventListener('mousedown', onClickOutside)
+    }
+  }, [isConfirming])
+
+  const handleConfirm = async () => {
+    setIsDeleting(true)
+    try {
+      await deleteProject(projectId)
+      onDelete(projectId)
+    } catch (error) {
+      console.error('Delete failed:', error)
+      // Optionally show error toast
+    } finally {
+      setIsDeleting(false)
+      setIsConfirming(false)
+    }
+  }
+
+  return (
+    <TooltipProvider delayDuration={200}>
+      <div 
+        ref={ref} 
+        className='flex items-center overflow-hidden transition-all duration-250 ease-out'
+        style={{ width: isConfirming ? 112 : 32 }}
+      >
+        <Tooltip open={isConfirming ? false : undefined}>
+          <TooltipTrigger asChild>
+            <Button
+              variant='ghost'
+              size='icon'
+              disabled={isDeleting}
+              className={cn(
+                'h-8 w-8 shrink-0 transition-opacity duration-200 cursor-pointer',
+                !isConfirming && 'opacity-0 group-hover:opacity-100',
+                isConfirming && 'opacity-100',
+              )}
+              onClick={(e) => {
+                e.stopPropagation()
+                setIsConfirming(true)
+              }}
+              aria-label='Delete project'
+            >
+              {isDeleting 
+                ? <Loader2 className='h-3.5 w-3.5 animate-spin' />
+                : <Trash2 className='h-3.5 w-3.5' />
+              }
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side='bottom' className='text-xs'>
+            Delete project
+          </TooltipContent>
+        </Tooltip>
+
+        {isConfirming && !isDeleting && (
+          <div className='flex items-center text-xs'>
+            <Button
+              variant='ghost'
+              size='icon'
+              className='h-8 w-6 text-muted-foreground'
+              onClick={(e) => {
+                e.stopPropagation()
+                setIsConfirming(false)
+              }}
+            >
+              <X className='h-3.5 w-3.5' />
+            </Button>
+            <Button
+              variant='ghost'
+              size='icon'
+              className='h-8 w-6 text-destructive hover:text-destructive hover:bg-destructive/10'
+              onClick={(e) => {
+                e.stopPropagation()
+                void handleConfirm()
+              }}
+            >
+              <Check className='h-3.5 w-3.5' />
+            </Button>
+          </div>
+        )}
+      </div>
+    </TooltipProvider>
+  )
+}
+
+// ─── Main Page ────────────────────────────────────────────
 
 const ProjectsPage = () => {
   const [projects, setProjects] = useState<Project[]>([])
@@ -132,6 +242,10 @@ const ProjectsPage = () => {
     setDescription('')
     setNameError('')
     setSubmitError(null)
+  }
+
+  const handleDeleteProject = (deletedId: string) => {
+    setProjects(prev => prev.filter(p => p.id !== deletedId))
   }
 
   // ─── Render helpers ───
@@ -244,16 +358,23 @@ const ProjectsPage = () => {
                     year: 'numeric',
                   })}
                 </p>
-                <Button
-                  variant='ghost'
-                  size='icon'
-                  className='h-7 w-7 opacity-0 transition-opacity group-hover:opacity-100'
-                  onClick={(e) => {
-                    e.stopPropagation()
-                  }}
-                >
-                  <MoreHorizontal className='h-4 w-4' />
-                </Button>
+                <div className='flex items-center gap-1'>
+                  <Button
+                    variant='ghost'
+                    size='icon'
+                    className='h-7 w-7 opacity-0 transition-opacity group-hover:opacity-100'
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      // You could add an edit menu here later
+                    }}
+                  >
+                    <MoreHorizontal className='h-4 w-4' />
+                  </Button>
+                  <DeleteButton
+                    projectId={project.id}
+                    onDelete={handleDeleteProject}
+                  />
+                </div>
               </div>
             </CardContent>
           </Card>

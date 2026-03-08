@@ -26,3 +26,13 @@ export async function createProject(name: string, description: string) {
   if (!res.ok) throw new Error(data.error || 'Failed to create project')
   return data.data
 }
+
+export async function deleteProject(id: string): Promise<{ success: boolean }> {
+  const res = await fetch(`/api/projects/${id}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error || 'Failed to delete project')
+  return data
+}
