@@ -131,3 +131,34 @@ export async function toggleOccurrence(occurrenceId: string): Promise<{ success:
   if (!res.ok) throw new Error(data.error || 'Failed to toggle task')
   return data
 }
+
+export interface Occurrence {
+  occurrenceId: string
+  taskId: string
+  projectId: string
+  taskName: string
+  date: string
+  taskType: 'one_time' | 'recurring'
+  startDate: string
+  endDate: string
+  completed: boolean
+  recurrenceDays: number[]
+}
+
+export async function fetchOccurrences(
+  startDate: string,
+  endDate: string,
+  projectId?: string
+): Promise<Record<string, Occurrence[]>> {
+  const url = new URL('/api/tasks/occurrences', window.location.origin)
+  url.searchParams.set('startDate', startDate)
+  url.searchParams.set('endDate', endDate)
+  url.searchParams.set('groupByDate', 'true')
+  if (projectId && projectId !== 'all') {
+    url.searchParams.set('projectId', projectId)
+  }
+  const res = await fetch(url.toString())
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error || 'Failed to fetch occurrences')
+  return data.data
+}

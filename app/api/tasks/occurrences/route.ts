@@ -12,6 +12,7 @@ export async function GET(req: NextRequest) {
     const startDate = searchParams.get('startDate')
     const endDate = searchParams.get('endDate')
     const projectId = searchParams.get('projectId')
+    const groupByDate = searchParams.get('groupByDate') === 'true'
 
     if (!startDate || !endDate) {
       return NextResponse.json({ error: 'startDate and endDate are required' }, { status: 400 })
@@ -23,6 +24,17 @@ export async function GET(req: NextRequest) {
       endDate,
       projectId || undefined
     )
+
+    if (groupByDate) {
+      const grouped = occurrences.reduce((acc, occ) => {
+        const date = occ.date
+        if (!acc[date]) acc[date] = []
+        acc[date].push(occ)
+        return acc
+      }, {} as Record<string, typeof occurrences>)
+
+      return NextResponse.json({ success: true, data: grouped }, { status: 200 })
+    }
 
     return NextResponse.json({ success: true, data: occurrences }, { status: 200 })
   } catch (error) {

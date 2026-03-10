@@ -370,9 +370,24 @@ export async function getOccurrencesInRange(
     .select({
       occurrenceId: taskOccurrences.id,
       taskId: tasks.id,
+      projectId: tasks.projectId,
       taskName: tasks.name,
       date: taskOccurrences.date,
+      taskType: tasks.taskType,
+      startDate: tasks.startDate,
+      endDate: tasks.endDate,
       completed: taskOccurrences.completed,
+      // Aggregating recurrence days into an array
+      recurrenceDays: sql<number[]>`
+        COALESCE(
+          (
+            SELECT array_agg(${taskRecurrenceDays.dayOfWeek} ORDER BY ${taskRecurrenceDays.dayOfWeek})
+            FROM ${taskRecurrenceDays}
+            WHERE ${taskRecurrenceDays.taskId} = ${tasks.id}
+          ),
+          ARRAY[]::integer[]
+        )
+      `.as('recurrenceDays'),
     })
     .from(taskOccurrences)
     .innerJoin(tasks, eq(tasks.id, taskOccurrences.taskId))

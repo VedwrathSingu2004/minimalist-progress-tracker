@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { cn } from '@/lib/utils'
 
 // ── ShadCN Components ────────────────────────────
@@ -24,8 +24,21 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command'
 
-// ── Icons (lucide-react, ships with ShadCN) ──────
+// ── Icons ────────────────────────────────────────
 import {
   ChevronLeft,
   ChevronRight,
@@ -33,21 +46,25 @@ import {
   Clock,
   CalendarDays,
   CalendarCheck,
+  ChevronsUpDown,
+  Check,
+  FolderKanban,
+  Loader2,
 } from 'lucide-react'
 import { qualyFontFamily } from '@/lib/fonts'
+
+// ── API ───────────────────────────────────────────
+import { fetchProjects } from '@/lib/api/projects'
+import { fetchOccurrences, toggleOccurrence, Occurrence } from '@/lib/api/tasks'
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Types
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-interface Task {
+interface Project {
   id: string
-  taskName: string
-  taskType: 'one_time' | 'recurring'
-  date?: string          // YYYY-MM-DD (one_time)
-  startDate?: string     // YYYY-MM-DD (recurring)
-  endDate?: string       // YYYY-MM-DD (recurring)
-  daysOfWeek?: number[]  // 0=Sun … 6=Sat  (recurring)
+  name: string
+  color?: string
 }
 
 interface CalendarDay {
@@ -78,10 +95,8 @@ const isSameDay = (a: Date, b: Date) =>
   a.getMonth() === b.getMonth() &&
   a.getDate() === b.getDate()
 
-const cKey = (taskId: string, dateStr: string) => `${taskId}::${dateStr}`
-
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Days-of-Week Indicator
+// Days-of-Week Indicator (unchanged)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const DaysOfWeekIndicator = ({
@@ -110,67 +125,81 @@ const DaysOfWeekIndicator = ({
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Mock Data
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-const buildMockTasks = (): Task[] => {
-  const n = new Date()
-  const y = n.getFullYear()
-  const m = n.getMonth()
-  const d = (day: number) => toDateStr(new Date(y, m, day))
-
-  return [
-    { id: '1',  taskName: 'Team standup',              taskType: 'recurring', startDate: d(1),  endDate: d(25), daysOfWeek: [1,2,3,4,5] },
-    { id: '2',  taskName: 'Gym workout',               taskType: 'recurring', startDate: d(1),  endDate: d(28), daysOfWeek: [1,3,5] },
-    { id: '3',  taskName: 'Submit quarterly report',   taskType: 'one_time',  date: d(5) },
-    { id: '4',  taskName: 'Client presentation',       taskType: 'one_time',  date: d(10) },
-    { id: '5',  taskName: 'Code review session',       taskType: 'recurring', startDate: d(3),  endDate: d(17), daysOfWeek: [2,4] },
-    { id: '6',  taskName: 'Design system sync',        taskType: 'one_time',  date: d(12) },
-    { id: '7',  taskName: 'Deploy v2.1 to production', taskType: 'one_time',  date: d(15) },
-    { id: '8',  taskName: 'Write API documentation',   taskType: 'one_time',  date: d(15) },
-    { id: '9',  taskName: 'Team lunch',                taskType: 'one_time',  date: d(20) },
-    { id: '10', taskName: 'Sprint retrospective',      taskType: 'one_time',  date: d(22) },
-    { id: '11', taskName: 'Update dependencies',       taskType: 'one_time',  date: d(8) },
-    { id: '12', taskName: 'Performance review prep',   taskType: 'one_time',  date: d(18) },
-    { id: '13', taskName: 'Read engineering blog',     taskType: 'recurring', startDate: d(1),  endDate: d(14), daysOfWeek: [0,6] },
-  ]
-}
-
-const buildInitialCompletions = (): Set<string> => {
-  const n = new Date()
-  const y = n.getFullYear()
-  const m = n.getMonth()
-  const today = n.getDate()
-  const s = new Set<string>()
-
-  for (let day = 1; day < Math.min(today, 6); day++) {
-    const ds = toDateStr(new Date(y, m, day))
-    s.add(cKey('1', ds))
-    s.add(cKey('2', ds))
-  }
-  if (today > 5)  s.add(cKey('3',  toDateStr(new Date(y, m, 5))))
-  if (today > 8)  s.add(cKey('11', toDateStr(new Date(y, m, 8))))
-  if (today > 10) s.add(cKey('4',  toDateStr(new Date(y, m, 10))))
-  return s
-}
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Component
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const MAX_VISIBLE = 3
 
 const CalendarTaskView = () => {
-  /* ── state ─────────────────────────────────── */
   const today = useMemo(() => new Date(), [])
   const [month, setMonth]               = useState(today.getMonth())
   const [year, setYear]                 = useState(today.getFullYear())
-  const [tasks]                         = useState<Task[]>(buildMockTasks)
-  const [completions, setCompletions]   = useState<Set<string>>(buildInitialCompletions)
   const [selectedDate, setSelectedDate] = useState<Date | null>(null)
   const [sheetOpen, setSheetOpen]       = useState(false)
 
-  /* ── calendar grid ─────────────────────────── */
+  // ── Projects ─────────────────────────────────────
+  const [projects, setProjects] = useState<Project[]>([])
+  const [loadingProjects, setLoadingProjects] = useState(true)
+  const [projectsError, setProjectsError] = useState<string | null>(null)
+  const [selectedProjectId, setSelectedProjectId] = useState<string>('all')
+
+  // ── Occurrences ─────────────────────────────────
+  const [occurrences, setOccurrences] = useState<Record<string, Occurrence[]>>({})
+  const [loadingOccurrences, setLoadingOccurrences] = useState(false)
+  const [occurrencesError, setOccurrencesError] = useState<string | null>(null)
+
+  // ── Toggle tracking ──────────────────────────────
+  const [togglingIds, setTogglingIds] = useState<Set<string>>(new Set())
+
+  // Load projects on mount
+  useEffect(() => {
+    const loadProjects = async () => {
+      try {
+        setLoadingProjects(true)
+        const data = await fetchProjects()
+        const allProjects: Project[] = [
+          { id: 'all', name: 'All Projects', color: 'bg-gray-400' },
+          ...data.map((p: any) => ({ ...p, color: 'bg-primary' }))
+        ]
+        setProjects(allProjects)
+      } catch (err) {
+        setProjectsError(err instanceof Error ? err.message : 'Failed to load projects')
+      } finally {
+        setLoadingProjects(false)
+      }
+    }
+    loadProjects()
+  }, [])
+
+  // Compute first and last day of current month for API
+  const monthStart = useMemo(() => new Date(year, month, 1), [year, month])
+  const monthEnd = useMemo(() => new Date(year, month + 1, 0), [year, month])
+  const startDateStr = toDateStr(monthStart)
+  const endDateStr = toDateStr(monthEnd)
+
+  // Fetch occurrences when month, year, or selected project changes
+  useEffect(() => {
+    const loadOccurrences = async () => {
+      if (loadingProjects) return // wait until projects are loaded
+      setLoadingOccurrences(true)
+      setOccurrencesError(null)
+      try {
+        const data = await fetchOccurrences(
+          startDateStr,
+          endDateStr,
+          selectedProjectId === 'all' ? undefined : selectedProjectId
+        )
+        setOccurrences(data)
+      } catch (err) {
+        setOccurrencesError(err instanceof Error ? err.message : 'Failed to load tasks')
+      } finally {
+        setLoadingOccurrences(false)
+      }
+    }
+    loadOccurrences()
+  }, [month, year, selectedProjectId, loadingProjects, startDateStr, endDateStr])
+
+  // ── Calendar grid ───────────────────────────────
   const days = useMemo<CalendarDay[]>(() => {
     const first    = new Date(year, month, 1)
     const last     = new Date(year, month + 1, 0)
@@ -195,71 +224,121 @@ const CalendarTaskView = () => {
     return out
   }, [month, year, today])
 
-  /* ── task helpers (now respects daysOfWeek) ── */
-  const tasksOn = (ds: string) => {
-    const date = new Date(ds + 'T00:00:00')
-    const dow  = date.getDay()
-    return tasks.filter((t) => {
-      if (t.taskType === 'one_time') return t.date === ds
-      if (ds >= t.startDate! && ds <= t.endDate!) {
-        if (t.daysOfWeek && t.daysOfWeek.length > 0) return t.daysOfWeek.includes(dow)
-        return true
-      }
-      return false
+  // ── Stats ───────────────────────────────────────
+  const stats = useMemo(() => {
+    let total = 0
+    let completed = 0
+    Object.values(occurrences).forEach(dayOccs => {
+      total += dayOccs.length
+      completed += dayOccs.filter(o => o.completed).length
     })
+    return {
+      total,
+      completed,
+      pct: total ? Math.round((completed / total) * 100) : 0
+    }
+  }, [occurrences])
+
+  // ── Task helpers ───────────────────────────────
+  const tasksOnDate = (dateStr: string) => occurrences[dateStr] || []
+
+  // ── Toggle (with optimistic update + API) ───────
+  const toggleTask = async (occurrenceId: string, dateStr: string) => {
+    // Prevent double toggling
+    if (togglingIds.has(occurrenceId)) return
+
+    // Find current occurrence to get its current completed status
+    const currentOccurrence = occurrences[dateStr]?.find(o => o.occurrenceId === occurrenceId)
+    if (!currentOccurrence) return
+
+    const newCompleted = !currentOccurrence.completed
+    const previousCompleted = currentOccurrence.completed
+
+    // Optimistic update
+    setOccurrences(prev => {
+      const updated = { ...prev }
+      if (updated[dateStr]) {
+        updated[dateStr] = updated[dateStr].map(occ =>
+          occ.occurrenceId === occurrenceId
+            ? { ...occ, completed: newCompleted }
+            : occ
+        )
+      }
+      return updated
+    })
+
+    // Mark as toggling
+    setTogglingIds(prev => new Set(prev).add(occurrenceId))
+
+    try {
+      await toggleOccurrence(occurrenceId)
+    } catch (error) {
+      // Revert on error
+      setOccurrences(prev => {
+        const updated = { ...prev }
+        if (updated[dateStr]) {
+          updated[dateStr] = updated[dateStr].map(occ =>
+            occ.occurrenceId === occurrenceId
+              ? { ...occ, completed: previousCompleted }
+              : occ
+          )
+        }
+        return updated
+      })
+      console.error('Toggle failed:', error)
+    } finally {
+      // Remove from toggling set
+      setTogglingIds(prev => {
+        const next = new Set(prev)
+        next.delete(occurrenceId)
+        return next
+      })
+    }
   }
 
-  const done = (id: string, ds: string) => completions.has(cKey(id, ds))
+  // ── Navigation ──────────────────────────────────
+  const nav = (delta: number) => {
+    const d = new Date(year, month + delta, 1)
+    setMonth(d.getMonth())
+    setYear(d.getFullYear())
+  }
+  const goToday = () => {
+    setMonth(today.getMonth())
+    setYear(today.getFullYear())
+  }
 
-  const toggle = (id: string, ds: string) =>
-    setCompletions((prev) => {
-      const next = new Set(prev)
-      const k = cKey(id, ds)
-      next.has(k) ? next.delete(k) : next.add(k)
-      return next
-    })
+  // ── Selection ───────────────────────────────────
+  const openSheet = (day: CalendarDay) => {
+    setSelectedDate(day.date)
+    setSheetOpen(true)
+  }
+  const selDs = selectedDate ? toDateStr(selectedDate) : ''
+  const selOccurrences = selectedDate ? tasksOnDate(selDs) : []
 
-  /* ── stats (respects daysOfWeek) ─────────── */
-  const stats = useMemo(() => {
-    const firstDs  = toDateStr(new Date(year, month, 1))
-    const lastDate = new Date(year, month + 1, 0)
-    const lastDs   = toDateStr(lastDate)
-    const dim      = lastDate.getDate()
-    let total = 0
-    let comp  = 0
+  // ── Project dropdown ────────────────────────────
+  const selectedProject = projects.find(p => p.id === selectedProjectId) ?? {
+    id: 'all',
+    name: 'All Projects',
+    color: 'bg-gray-400'
+  }
 
-    for (const t of tasks) {
-      if (t.taskType === 'one_time') {
-        if (t.date! >= firstDs && t.date! <= lastDs) {
-          total++
-          if (completions.has(cKey(t.id, t.date!))) comp++
-        }
-      } else {
-        for (let d = 1; d <= dim; d++) {
-          const ds  = toDateStr(new Date(year, month, d))
-          if (ds >= t.startDate! && ds <= t.endDate!) {
-            const dow = new Date(year, month, d).getDay()
-            if (t.daysOfWeek && t.daysOfWeek.length > 0 && !t.daysOfWeek.includes(dow)) continue
-            total++
-            if (completions.has(cKey(t.id, ds))) comp++
-          }
-        }
-      }
-    }
+  if (loadingProjects) {
+    return (
+      <div className='flex h-screen items-center justify-center'>
+        <Loader2 className='h-8 w-8 animate-spin text-muted-foreground' />
+      </div>
+    )
+  }
 
-    return { total, comp, pct: total ? Math.round((comp / total) * 100) : 0 }
-  }, [tasks, completions, month, year])
+  if (projectsError) {
+    return (
+      <div className='flex h-screen flex-col items-center justify-center gap-2'>
+        <p className='text-destructive'>Error loading projects: {projectsError}</p>
+        <Button onClick={() => window.location.reload()}>Retry</Button>
+      </div>
+    )
+  }
 
-  /* ── navigation ────────────────────────────── */
-  const nav     = (delta: number) => { const d = new Date(year, month + delta, 1); setMonth(d.getMonth()); setYear(d.getFullYear()) }
-  const goToday = () => { setMonth(today.getMonth()); setYear(today.getFullYear()) }
-
-  /* ── selection ─────────────────────────────── */
-  const openSheet = (day: CalendarDay) => { setSelectedDate(day.date); setSheetOpen(true) }
-  const selDs     = selectedDate ? toDateStr(selectedDate) : ''
-  const selTasks  = selectedDate ? tasksOn(selDs) : []
-
-  /* ── render ────────────────────────────────── */
   return (
     <TooltipProvider delayDuration={200}>
       <div className='mx-auto w-full space-y-4 p-4 md:p-6'>
@@ -276,13 +355,69 @@ const CalendarTaskView = () => {
                   <h1 className={`text-2xl font-bold tracking-tight md:text-4xl ${qualyFontFamily.className}`}>
                     {MONTHS[month]} {year}
                   </h1>
-                  <p className='text-sm text-muted-foreground'>
-                    {stats.comp} of {stats.total} task-days completed
-                  </p>
+                  {loadingOccurrences ? (
+                    <p className='text-sm text-muted-foreground'>Loading tasks…</p>
+                  ) : (
+                    <p className='text-sm text-muted-foreground'>
+                      {stats.completed} of {stats.total} task-days completed
+                    </p>
+                  )}
                 </div>
               </div>
 
               <div className='flex items-center gap-2'>
+                {/* Project Selector */}
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant='outline'
+                      size='sm'
+                      role='combobox'
+                      className='h-9 w-50 justify-between gap-2 font-medium shadow-sm transition-all hover:shadow-md'
+                    >
+                      <span className='flex items-center gap-2 truncate'>
+                        <span className={cn('h-2 w-2 shrink-0 rounded-full', selectedProject.color)} />
+                        <FolderKanban className='h-3.5 w-3.5 shrink-0 text-muted-foreground' />
+                        <span className='truncate text-xs'>{selectedProject.name}</span>
+                      </span>
+                      <ChevronsUpDown className='h-3.5 w-3.5 shrink-0 opacity-50' />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className='w-55 p-0' align='end'>
+                    <Command>
+                      <CommandInput placeholder='Search projects…' className='h-9 text-xs' />
+                      <CommandList>
+                        <CommandEmpty className='py-4 text-center text-xs text-muted-foreground'>
+                          No project found.
+                        </CommandEmpty>
+                        <CommandGroup>
+                          {projects.map((project) => (
+                            <CommandItem
+                              key={project.id}
+                              value={project.name}
+                              onSelect={() => {
+                                setSelectedProjectId(project.id)
+                              }}
+                              className='flex items-center gap-2 text-xs'
+                            >
+                              <span className={cn('h-2 w-2 shrink-0 rounded-full', project.color)} />
+                              <span className='flex-1 truncate'>{project.name}</span>
+                              <Check
+                                className={cn(
+                                  'h-3.5 w-3.5 shrink-0',
+                                  selectedProjectId === project.id ? 'opacity-100' : 'opacity-0',
+                                )}
+                              />
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+
+                <Separator orientation='vertical' className='mx-1 h-5' />
+
                 <Button variant='outline' size='sm' className='text-xs' onClick={goToday}>
                   Today
                 </Button>
@@ -301,9 +436,17 @@ const CalendarTaskView = () => {
             <div className='border-t pt-4'>
               <div className='mb-2 flex items-center justify-between'>
                 <span className='text-xs font-medium text-muted-foreground'>Monthly Progress</span>
-                <span className='text-xs font-semibold'>{stats.pct}%</span>
+                {loadingOccurrences ? (
+                  <Loader2 className='h-3 w-3 animate-spin' />
+                ) : (
+                  <span className={`text-2xl font-semibold ${qualyFontFamily.className}`}>{stats.pct}%</span>
+                )}
               </div>
-              <Progress value={stats.pct} className='h-2' />
+              {loadingOccurrences ? (
+                <div className='h-2 w-full animate-pulse rounded-full bg-muted' />
+              ) : (
+                <Progress value={stats.pct} className='h-2' />
+              )}
             </div>
 
             <div className='flex items-center gap-6 border-t pt-3'>
@@ -334,12 +477,12 @@ const CalendarTaskView = () => {
 
             <div className='grid grid-cols-7'>
               {days.map((day, i) => {
-                const dt        = tasksOn(day.dateStr)
-                const doneCount = dt.filter((t) => done(t.id, day.dateStr)).length
-                const visible   = dt.slice(0, MAX_VISIBLE)
-                const overflow  = dt.length - MAX_VISIBLE
-                const isSel     = selectedDate && isSameDay(day.date, selectedDate)
-                const allDone   = dt.length > 0 && doneCount === dt.length
+                const dayOccurrences = tasksOnDate(day.dateStr)
+                const doneCount = dayOccurrences.filter(o => o.completed).length
+                const visible = dayOccurrences.slice(0, MAX_VISIBLE)
+                const overflow = dayOccurrences.length - MAX_VISIBLE
+                const isSel = selectedDate && isSameDay(day.date, selectedDate)
+                const allDone = dayOccurrences.length > 0 && doneCount === dayOccurrences.length
 
                 return (
                   <div
@@ -370,7 +513,7 @@ const CalendarTaskView = () => {
                         {day.date.getDate()}
                       </span>
 
-                      {dt.length > 0 && day.isCurrentMonth && (
+                      {dayOccurrences.length > 0 && day.isCurrentMonth && (
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Badge
@@ -380,11 +523,11 @@ const CalendarTaskView = () => {
                                 allDone && 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300',
                               )}
                             >
-                              {doneCount}/{dt.length}
+                              {doneCount}/{dayOccurrences.length}
                             </Badge>
                           </TooltipTrigger>
                           <TooltipContent side='top' className='text-xs'>
-                            {doneCount} of {dt.length} done
+                            {doneCount} of {dayOccurrences.length} done
                           </TooltipContent>
                         </Tooltip>
                       )}
@@ -393,11 +536,13 @@ const CalendarTaskView = () => {
                     {/* inline task list */}
                     {day.isCurrentMonth && (
                       <div className='flex-1 space-y-px'>
-                        {visible.map((t) => {
-                          const d = done(t.id, day.dateStr)
+                        {visible.map((occ) => {
+                          const d = occ.completed
+                          const isToggling = togglingIds.has(occ.occurrenceId)
+
                           return (
                             <label
-                              key={t.id}
+                              key={occ.occurrenceId}
                               onClick={(e) => e.stopPropagation()}
                               onKeyDown={(e) => e.stopPropagation()}
                               className={cn(
@@ -405,19 +550,23 @@ const CalendarTaskView = () => {
                                 d && 'opacity-50',
                               )}
                             >
-                              <Checkbox
-                                checked={d}
-                                onCheckedChange={() => toggle(t.id, day.dateStr)}
-                                className='h-3.5 w-3.5 shrink-0 rounded-lg'
-                              />
+                              {isToggling ? (
+                                <Loader2 className='h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground' />
+                              ) : (
+                                <Checkbox
+                                  checked={d}
+                                  onCheckedChange={() => toggleTask(occ.occurrenceId, day.dateStr)}
+                                  className='h-3.5 w-3.5 shrink-0 rounded-lg'
+                                />
+                              )}
                               <span
                                 className={cn(
                                   'h-1.5 w-1.5 shrink-0 rounded-full',
-                                  d ? 'bg-emerald-500' : t.taskType === 'recurring' ? 'bg-blue-500' : 'bg-amber-500',
+                                  d ? 'bg-emerald-500' : occ.taskType === 'recurring' ? 'bg-blue-500' : 'bg-amber-500',
                                 )}
                               />
                               <span className={cn('truncate text-[16px] leading-tight', d && 'text-muted-foreground line-through')}>
-                                {t.taskName}
+                                {occ.taskName}
                               </span>
                             </label>
                           )
@@ -435,11 +584,11 @@ const CalendarTaskView = () => {
                     )}
 
                     {/* thin progress bar at bottom */}
-                    {dt.length > 0 && day.isCurrentMonth && (
+                    {dayOccurrences.length > 0 && day.isCurrentMonth && (
                       <div className='absolute inset-x-0 bottom-0 h-0.75 overflow-hidden'>
                         <div
                           className={cn('h-full transition-all duration-300', allDone ? 'bg-emerald-500/60' : 'bg-primary/25')}
-                          style={{ width: `${(doneCount / dt.length) * 100}%` }}
+                          style={{ width: `${(doneCount / dayOccurrences.length) * 100}%` }}
                         />
                       </div>
                     )}
@@ -461,16 +610,16 @@ const CalendarTaskView = () => {
                 })}
               </SheetTitle>
               <SheetDescription>
-                {selTasks.length === 0
+                {selOccurrences.length === 0
                   ? 'No tasks scheduled for this date.'
-                  : `${selTasks.filter((t) => done(t.id, selDs)).length} of ${selTasks.length} tasks completed`}
+                  : `${selOccurrences.filter(o => o.completed).length} of ${selOccurrences.length} tasks completed`}
               </SheetDescription>
             </SheetHeader>
 
             <Separator className='my-4' />
 
             <ScrollArea className='h-[calc(100vh-200px)] pr-4'>
-              {selTasks.length === 0 ? (
+              {selOccurrences.length === 0 ? (
                 <div className='flex flex-col items-center justify-center py-16 text-center'>
                   <div className='mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-muted'>
                     <CalendarDays className='h-8 w-8 text-muted-foreground/40' />
@@ -480,16 +629,18 @@ const CalendarTaskView = () => {
                 </div>
               ) : (
                 <div className='space-y-3 w-full px-4'>
-                  {selTasks.map((t) => {
-                    const d = done(t.id, selDs)
+                  {selOccurrences.map((occ) => {
+                    const d = occ.completed
+                    const isToggling = togglingIds.has(occ.occurrenceId)
+
                     return (
                       <Card
-                        key={t.id}
+                        key={occ.occurrenceId}
                         role='button'
                         tabIndex={0}
-                        onClick={() => toggle(t.id, selDs)}
+                        onClick={() => toggleTask(occ.occurrenceId, selDs)}
                         onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(t.id, selDs) }
+                          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleTask(occ.occurrenceId, selDs) }
                         }}
                         className={cn(
                           'cursor-pointer select-none transition-colors duration-200',
@@ -501,14 +652,17 @@ const CalendarTaskView = () => {
                       >
                         <CardContent className='p-5'>
                           <div className='flex items-start gap-3'>
-                            <Checkbox
-                              checked={d}
-                              onCheckedChange={() => toggle(t.id, selDs)}
-                              onClick={(e) => e.stopPropagation()}
-                              className='mt-0.5'
-                            />
+                            {isToggling ? (
+                              <Loader2 className='mt-0.5 h-4 w-4 shrink-0 animate-spin text-muted-foreground' />
+                            ) : (
+                              <Checkbox
+                                checked={d}
+                                onCheckedChange={() => toggleTask(occ.occurrenceId, selDs)}
+                                onClick={(e) => e.stopPropagation()}
+                                className='mt-0.5'
+                              />
+                            )}
                             <div className='min-w-0 flex-1 space-y-2'>
-                              {/* ★ task name + DOW indicator inline */}
                               <div className='flex flex-wrap items-center gap-2'>
                                 <p
                                   className={cn(
@@ -516,37 +670,33 @@ const CalendarTaskView = () => {
                                     d && 'text-muted-foreground line-through',
                                   )}
                                 >
-                                  {t.taskName}
+                                  {occ.taskName}
                                 </p>
-
-                                {/* {t.taskType === 'recurring' && t.daysOfWeek && (
-                                  <DaysOfWeekIndicator activeDays={t.daysOfWeek} />
-                                )} */}
                               </div>
 
                               <Badge
                                 variant='outline'
                                 className={cn(
                                   'h-5 gap-1 text-[10px]',
-                                  t.taskType === 'recurring'
+                                  occ.taskType === 'recurring'
                                     ? 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-400'
                                     : 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-400',
                                 )}
                               >
-                                {t.taskType === 'recurring' ? <Repeat className='h-3 w-3' /> : <Clock className='h-3 w-3' />}
-                                {t.taskType === 'recurring' ? 'Recurring' : 'One-time'}
+                                {occ.taskType === 'recurring' ? <Repeat className='h-3 w-3' /> : <Clock className='h-3 w-3' />}
+                                {occ.taskType === 'recurring' ? 'Recurring' : 'One-time'}
                               </Badge>
 
-                              {t.taskType === 'recurring' && t.daysOfWeek && (
-                                  <DaysOfWeekIndicator activeDays={t.daysOfWeek} />
+                              {occ.taskType === 'recurring' && occ.recurrenceDays.length > 0 && (
+                                  <DaysOfWeekIndicator activeDays={occ.recurrenceDays} />
                                 )}
 
-                              {t.taskType === 'recurring' && t.startDate && t.endDate && (
+                              {occ.taskType === 'recurring' && occ.startDate && occ.endDate && (
                                 <p className='flex items-center gap-1 text-[11px] text-muted-foreground'>
                                   <CalendarDays className='h-3 w-3' />
-                                  {new Date(t.startDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                  {new Date(occ.startDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                                   {' → '}
-                                  {new Date(t.endDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                  {new Date(occ.endDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                                 </p>
                               )}
                             </div>
