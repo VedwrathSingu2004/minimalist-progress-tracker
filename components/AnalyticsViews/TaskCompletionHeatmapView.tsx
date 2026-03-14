@@ -8,14 +8,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import { Flame, Trophy, BarChart3, CalendarCheck, TrendingUp } from 'lucide-react'
+import { useTheme } from 'next-themes'
 
 const MONTH_LABELS = [
   'Jan','Feb','Mar','Apr','May','Jun',
   'Jul','Aug','Sep','Oct','Nov','Dec',
 ]
-const HEAT_COLORS = ['#1a1e2b', '#0e4429', '#006d32', '#26a641', '#39d353']
+
+const HEAT_COLORS_DARK = ['#1a1e2b', '#0e4429', '#006d32', '#26a641', '#39d353']
+const HEAT_COLORS_LIGHT = ['#ebedf0', '#9be9a8', '#40c463', '#30a14e', '#216e39']
 
 function seededRandom(seed: number): number {
   const x = Math.sin(seed * 127.1 + 311.7) * 43758.5453
@@ -143,6 +146,17 @@ export default function TaskCompletionHeatmapView() {
   const [year, setYear] = useState('2025')
   const [hoveredDay, setHoveredDay] = useState<DayData | null>(null)
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 })
+  const [mounted, setMounted] = useState(false)
+
+  const { resolvedTheme } = useTheme()
+
+  // Prevent hydration mismatch — theme is unknown on server
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  const isDark = mounted ? resolvedTheme === 'dark' : true
+  const heatColors = isDark ? HEAT_COLORS_DARK : HEAT_COLORS_LIGHT
 
   const { grid, totalWeeks, monthPositions, maxCount, stats } = useMemo(
     () => generateYearData(parseInt(year)),
@@ -152,14 +166,14 @@ export default function TaskCompletionHeatmapView() {
   const getColor = useCallback(
     (cell: DayData | null): string => {
       if (!cell || !cell.inYear) return 'transparent'
-      if (cell.count === 0) return HEAT_COLORS[0]
+      if (cell.count === 0) return heatColors[0]
       const ratio = cell.count / maxCount
-      if (ratio < 0.25) return HEAT_COLORS[1]
-      if (ratio < 0.5) return HEAT_COLORS[2]
-      if (ratio < 0.75) return HEAT_COLORS[3]
-      return HEAT_COLORS[4]
+      if (ratio < 0.25) return heatColors[1]
+      if (ratio < 0.5) return heatColors[2]
+      if (ratio < 0.75) return heatColors[3]
+      return heatColors[4]
     },
-    [maxCount]
+    [maxCount, heatColors]
   )
 
   const handleMouseEnter = useCallback(
@@ -186,50 +200,53 @@ export default function TaskCompletionHeatmapView() {
       label: 'Longest Streak',
       value: stats.longestStreak,
       unit: 'days',
-      accent: 'from-orange-500/20 to-red-500/20',
-      iconColor: 'text-orange-400',
-      borderAccent: 'border-orange-500/20',
+      accent: 'from-orange-500/20 to-red-500/20 dark:from-orange-500/20 dark:to-red-500/20',
+      iconColor: 'text-orange-500 dark:text-orange-400',
+      borderAccent: 'border-orange-500/30 dark:border-orange-500/20',
     },
     {
       icon: <Trophy className='w-4 h-4' />,
       label: 'Peak Day',
       value: stats.maxCount,
       unit: 'tasks',
-      accent: 'from-yellow-500/20 to-amber-500/20',
-      iconColor: 'text-yellow-400',
-      borderAccent: 'border-yellow-500/20',
+      accent: 'from-yellow-500/20 to-amber-500/20 dark:from-yellow-500/20 dark:to-amber-500/20',
+      iconColor: 'text-yellow-600 dark:text-yellow-400',
+      borderAccent: 'border-yellow-500/30 dark:border-yellow-500/20',
     },
     {
       icon: <BarChart3 className='w-4 h-4' />,
       label: 'Daily Average',
       value: stats.average,
       unit: 'tasks',
-      accent: 'from-blue-500/20 to-cyan-500/20',
-      iconColor: 'text-blue-400',
-      borderAccent: 'border-blue-500/20',
+      accent: 'from-blue-500/20 to-cyan-500/20 dark:from-blue-500/20 dark:to-cyan-500/20',
+      iconColor: 'text-blue-600 dark:text-blue-400',
+      borderAccent: 'border-blue-500/30 dark:border-blue-500/20',
     },
     {
       icon: <CalendarCheck className='w-4 h-4' />,
       label: 'Active Days',
       value: stats.activeDays,
       unit: `/ ${stats.totalDays}`,
-      accent: 'from-emerald-500/20 to-green-500/20',
-      iconColor: 'text-emerald-400',
-      borderAccent: 'border-emerald-500/20',
+      accent: 'from-emerald-500/20 to-green-500/20 dark:from-emerald-500/20 dark:to-green-500/20',
+      iconColor: 'text-emerald-600 dark:text-emerald-400',
+      borderAccent: 'border-emerald-500/30 dark:border-emerald-500/20',
     },
   ]
 
   return (
-    <Card className='w-full overflow-hidden border-border/50 bg-linear-to-br from-background via-background to-muted/30'>
+    <Card className='w-full overflow-hidden border-border/50
+                     bg-gradient-to-br from-background via-background to-muted/30'>
       {/* Decorative top accent line */}
-      <div className='h-0.5 w-full bg-linear-to-r from-transparent via-emerald-500/60 to-transparent' />
+      <div className='h-0.5 w-full bg-gradient-to-r from-transparent via-emerald-500/60 to-transparent' />
 
       <CardHeader className='pb-3 pt-5'>
         <div className='flex flex-col sm:flex-row sm:items-center justify-between gap-4'>
           <div className='space-y-1.5'>
             <div className='flex items-center gap-2.5'>
-              <div className='flex items-center justify-center w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20'>
-                <TrendingUp className='w-4 h-4 text-emerald-400' />
+              <div className='flex items-center justify-center w-8 h-8 rounded-lg
+                              bg-emerald-500/10 border border-emerald-500/20
+                              dark:bg-emerald-500/10 dark:border-emerald-500/20'>
+                <TrendingUp className='w-4 h-4 text-emerald-600 dark:text-emerald-400' />
               </div>
               <CardTitle className='text-xl font-semibold tracking-tight'>
                 Task Completion Activity
@@ -245,8 +262,8 @@ export default function TaskCompletionHeatmapView() {
             <div className='hidden md:flex items-center gap-2 rounded-full
                             bg-emerald-500/10 border border-emerald-500/20
                             px-4 py-2 backdrop-blur-sm'>
-              <div className='w-2 h-2 rounded-full bg-emerald-400 animate-pulse' />
-              <span className='text-sm font-bold text-emerald-400'>
+              <div className='w-2 h-2 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-pulse' />
+              <span className='text-sm font-bold text-emerald-600 dark:text-emerald-400'>
                 {stats.total.toLocaleString()}
               </span>
               <span className='text-xs text-muted-foreground'>completed</span>
@@ -256,7 +273,7 @@ export default function TaskCompletionHeatmapView() {
             <div className='hidden lg:flex items-center gap-2 rounded-full
                             bg-blue-500/10 border border-blue-500/20
                             px-4 py-2 backdrop-blur-sm'>
-              <span className='text-sm font-bold text-blue-400'>
+              <span className='text-sm font-bold text-blue-600 dark:text-blue-400'>
                 {stats.completionRate}%
               </span>
               <span className='text-xs text-muted-foreground'>active rate</span>
@@ -283,12 +300,15 @@ export default function TaskCompletionHeatmapView() {
             <div
               key={s.label}
               className={`group relative rounded-xl border ${s.borderAccent}
-                         bg-linear-to-br ${s.accent}
+                         bg-gradient-to-br ${s.accent}
                          p-4 transition-all duration-300
-                         hover:scale-[1.02] hover:shadow-lg hover:shadow-black/10`}
+                         hover:scale-[1.02] hover:shadow-lg
+                         hover:shadow-black/5 dark:hover:shadow-black/10`}
             >
-              {/* Subtle glow */}
-              <div className='absolute inset-0 rounded-xl bg-linear-to-br from-white/2 to-transparent pointer-events-none' />
+              <div className='absolute inset-0 rounded-xl bg-gradient-to-br
+                              from-white/5 to-transparent
+                              dark:from-white/[0.02] dark:to-transparent
+                              pointer-events-none' />
               <div className='relative'>
                 <div className='flex items-center gap-2 mb-2'>
                   <div className={`${s.iconColor} opacity-80`}>{s.icon}</div>
@@ -309,7 +329,7 @@ export default function TaskCompletionHeatmapView() {
 
         {/* Heatmap Grid */}
         <div className='w-full overflow-x-auto rounded-2xl border border-border/40
-                        bg-linear-to-br from-muted/30 via-muted/10 to-muted/30
+                        bg-gradient-to-br from-muted/30 via-muted/10 to-muted/30
                         p-5 shadow-inner'>
           <div style={{ minWidth: DAY_LABEL_WIDTH + gridWidth + 16 }}>
             {/* Month Labels */}
@@ -359,10 +379,14 @@ export default function TaskCompletionHeatmapView() {
                         key={weekIdx}
                         className={`rounded-[3px] transition-all duration-150
                           ${cell && cell.inYear
-                            ? 'hover:scale-[1.4] hover:z-10 hover:ring-2 hover:ring-white/30 hover:shadow-lg cursor-pointer'
+                            ? `hover:scale-[1.4] hover:z-10 cursor-pointer
+                               hover:ring-2 hover:ring-foreground/20 hover:shadow-lg`
                             : ''
                           }
-                          ${isToday ? 'ring-2 ring-white/60 ring-offset-1 ring-offset-background z-10' : ''}
+                          ${isToday
+                            ? 'ring-2 ring-foreground/60 ring-offset-1 ring-offset-background z-10'
+                            : ''
+                          }
                         `}
                         style={{
                           width: CELL_SIZE,
@@ -393,12 +417,12 @@ export default function TaskCompletionHeatmapView() {
             }}
           >
             <div className='relative rounded-xl bg-popover/95 backdrop-blur-md
-                            border border-border/80 shadow-2xl shadow-black/30
+                            border border-border shadow-2xl
+                            shadow-black/10 dark:shadow-black/30
                             px-4 py-3 text-xs'>
-              {/* Tooltip arrow */}
-              <div className='absolute -bottom-1.25 left-1/2 -translate-x-1/2
+              <div className='absolute -bottom-[5px] left-1/2 -translate-x-1/2
                               w-2.5 h-2.5 rotate-45
-                              bg-popover/95 border-r border-b border-border/80' />
+                              bg-popover/95 border-r border-b border-border' />
               <p className='font-semibold text-foreground text-[13px]'>
                 {hoveredDay.date.toLocaleDateString(undefined, {
                   weekday: 'long',
@@ -412,13 +436,15 @@ export default function TaskCompletionHeatmapView() {
                   className='w-2.5 h-2.5 rounded-sm'
                   style={{ backgroundColor: getColor(hoveredDay) }}
                 />
-                <p className='text-emerald-400 font-medium'>
+                <p className='text-emerald-600 dark:text-emerald-400 font-medium'>
                   {hoveredDay.count}{' '}
                   {hoveredDay.count === 1 ? 'task' : 'tasks'} completed
                 </p>
               </div>
               {hoveredDay.isToday && (
-                <p className='text-blue-400 mt-1 font-medium'>📍 Today</p>
+                <p className='text-blue-600 dark:text-blue-400 mt-1 font-medium'>
+                  📍 Today
+                </p>
               )}
             </div>
           </div>
@@ -428,23 +454,30 @@ export default function TaskCompletionHeatmapView() {
         <div className='flex items-center justify-between pt-1'>
           {/* Today indicator */}
           <div className='flex items-center gap-2'>
-            <div className='w-3.5 h-3.5 rounded-[3px] bg-muted/60 ring-2 ring-white/60 ring-offset-1 ring-offset-background' />
+            <div className='w-3.5 h-3.5 rounded-[3px] bg-muted
+                            ring-2 ring-foreground/60
+                            ring-offset-1 ring-offset-background' />
             <span className='text-[11px] text-muted-foreground font-medium'>Today</span>
           </div>
 
           {/* Legend */}
           <div className='flex items-center gap-2'>
-            <span className='text-[11px] text-muted-foreground font-medium mr-0.5'>Less</span>
-            <div className='flex items-center gap-0.75'>
-              {HEAT_COLORS.map((color) => (
+            <span className='text-[11px] text-muted-foreground font-medium mr-0.5'>
+              Less
+            </span>
+            <div className='flex items-center gap-[3px]'>
+              {heatColors.map((color, i) => (
                 <div
-                  key={color}
-                  className='w-3.5 h-3.5 rounded-[3px] transition-transform hover:scale-125'
+                  key={i}
+                  className='w-3.5 h-3.5 rounded-[3px] transition-transform hover:scale-125
+                             border border-black/5 dark:border-white/5'
                   style={{ backgroundColor: color }}
                 />
               ))}
             </div>
-            <span className='text-[11px] text-muted-foreground font-medium ml-0.5'>More</span>
+            <span className='text-[11px] text-muted-foreground font-medium ml-0.5'>
+              More
+            </span>
           </div>
         </div>
       </CardContent>

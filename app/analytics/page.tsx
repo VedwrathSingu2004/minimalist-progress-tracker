@@ -3,6 +3,7 @@
 import CompletionLineChartView from '@/components/AnalyticsViews/CompletionLineChartView'
 import MonthlyAvgHorizontalBarChartView from '@/components/AnalyticsViews/MonthlyAvgHorizontalBarChartView'
 import TaskCompletionHeatmapView from '@/components/AnalyticsViews/TaskCompletionHeatmapView'
+import ProjectTaskDistributionView from '@/components/AnalyticsViews/ProjectTaskDistributionView';
 
 const AnalyticsPage = () => {
   return (
@@ -15,6 +16,9 @@ const AnalyticsPage = () => {
       </div>
       <div className='m-auto'>
         <TaskCompletionHeatmapView />
+      </div>
+      <div className='m-auto'>
+        <ProjectTaskDistributionView />
       </div>
     </section>
   )

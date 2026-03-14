@@ -24,7 +24,7 @@ import {
 } from 'reaviz'
 import { useState, useRef, useEffect } from 'react'
 
-const BAR_COLOR = '#9E579D'
+const BAR_COLOR = '#FF6868'
 
 const staticData = [
   { month: 'Jan', percentage: 72 },
