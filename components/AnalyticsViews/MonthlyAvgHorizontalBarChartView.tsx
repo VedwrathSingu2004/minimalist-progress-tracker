@@ -23,34 +23,45 @@ import {
   ChartTooltip,
 } from 'reaviz'
 import { useState, useRef, useEffect } from 'react'
+import { Loader2 } from 'lucide-react'
 
 const BAR_COLOR = '#FF6868'
 
-const staticData = [
-  { month: 'Jan', percentage: 72 },
-  { month: 'Feb', percentage: 65 },
-  { month: 'Mar', percentage: 80 },
-  { month: 'Apr', percentage: 58 },
-  { month: 'May', percentage: 90 },
-  { month: 'Jun', percentage: 45 },
-  { month: 'Jul', percentage: 78 },
-  { month: 'Aug', percentage: 85 },
-  { month: 'Sep', percentage: 62 },
-  { month: 'Oct', percentage: 73 },
-  { month: 'Nov', percentage: 88 },
-  { month: 'Dec', percentage: 55 },
-]
-
-const chartData = staticData.map((d) => ({
-  key: d.month,
-  data: d.percentage,
-}))
+interface MonthlyStat {
+  month: string
+  year: number
+  percentage: number
+}
 
 export default function MonthlyCompletionBarChartView() {
   const [year, setYear] = useState('2026')
+  const [data, setData] = useState<MonthlyStat[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
   const containerRef = useRef<HTMLDivElement>(null)
   const [dimensions, setDimensions] = useState({ width: 700, height: 500 })
 
+  // Fetch data when year changes
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/tasks/stats/monthly?year=${year}`)
+        const json = await res.json()
+        if (!res.ok) throw new Error(json.error || 'Failed to fetch')
+        setData(json.data)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Unknown error')
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchData()
+  }, [year])
+
+  // Responsive sizing
   useEffect(() => {
     function updateSize() {
       if (containerRef.current) {
@@ -64,6 +75,11 @@ export default function MonthlyCompletionBarChartView() {
     window.addEventListener('resize', updateSize)
     return () => window.removeEventListener('resize', updateSize)
   }, [])
+
+  const chartData = data.map((d) => ({
+    key: d.month,
+    data: d.percentage,
+  }))
 
   return (
     <Card className='w-full'>
@@ -81,58 +97,73 @@ export default function MonthlyCompletionBarChartView() {
         </Select>
       </CardHeader>
       <CardContent>
-        <div ref={containerRef} className='h-125 w-full'>
-          <BarChart
-            width={dimensions.width}
-            height={dimensions.height}
-            data={chartData}
-            xAxis={
-              <LinearXAxis
-                type='value'
-                tickSeries={
-                  <LinearXAxisTickSeries
-                    label={
-                      <LinearXAxisTickLabel
-                        format={(v: any) => `${v}%`}
-                      />
-                    }
-                  />
-                }
-              />
-            }
-            yAxis={
-              <LinearYAxis
-                type='category'
-                tickSeries={
-                  <LinearYAxisTickSeries
-                    label={<LinearYAxisTickLabel />}
-                  />
-                }
-              />
-            }
-            series={
-              <BarSeries
-                layout='horizontal'
-                colorScheme={BAR_COLOR}
-                padding={0.3}
-                bar={
-                  <Bar
-                    tooltip={
-                      <ChartTooltip
-                        content={(d: any) =>
-                          `${d.key}: ${d.data}% avg completed`
-                        }
-                      />
-                    }
-                  />
-                }
-              />
-            }
-            gridlines={
-              <GridlineSeries line={<Gridline direction='x' />} />
-            }
-          />
-        </div>
+        {loading ? (
+          <div className='flex h-125 items-center justify-center'>
+            <Loader2 className='h-8 w-8 animate-spin text-muted-foreground' />
+          </div>
+        ) : error ? (
+          <div className='flex h-125 items-center justify-center text-destructive'>
+            Error: {error}
+          </div>
+        ) : data.length === 0 ? (
+          <div className='flex h-125 items-center justify-center text-muted-foreground'>
+            No data available for {year}
+          </div>
+        ) : (
+          <div ref={containerRef} className='h-125 w-full'>
+            <BarChart
+              width={dimensions.width}
+              height={dimensions.height}
+              data={chartData}
+              xAxis={
+                <LinearXAxis
+                  type='value'
+                  domain={[0, 100]}
+                  tickSeries={
+                    <LinearXAxisTickSeries
+                      label={
+                        <LinearXAxisTickLabel
+                          format={(v: any) => `${v}%`}
+                        />
+                      }
+                    />
+                  }
+                />
+              }
+              yAxis={
+                <LinearYAxis
+                  type='category'
+                  tickSeries={
+                    <LinearYAxisTickSeries
+                      label={<LinearYAxisTickLabel />}
+                    />
+                  }
+                />
+              }
+              series={
+                <BarSeries
+                  layout='horizontal'
+                  colorScheme={BAR_COLOR}
+                  padding={0.3}
+                  bar={
+                    <Bar
+                      tooltip={
+                        <ChartTooltip
+                          content={(d: any) =>
+                            `${d.key}: ${d.data}% avg completed`
+                          }
+                        />
+                      }
+                    />
+                  }
+                />
+              }
+              gridlines={
+                <GridlineSeries line={<Gridline direction='x' />} />
+              }
+            />
+          </div>
+        )}
       </CardContent>
     </Card>
   )

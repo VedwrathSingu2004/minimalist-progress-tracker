@@ -162,3 +162,20 @@ export async function fetchOccurrences(
   if (!res.ok) throw new Error(data.error || 'Failed to fetch occurrences')
   return data.data
 }
+
+export interface DailyStat {
+  date: string
+  totalTasks: number
+  completedTasks: number
+  progressPercent: number
+}
+
+export async function fetchDailyStats(startDate: string, endDate: string): Promise<DailyStat[]> {
+  const url = new URL('/api/tasks/stats', window.location.origin)
+  url.searchParams.set('startDate', startDate)
+  url.searchParams.set('endDate', endDate)
+  const res = await fetch(url.toString())
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error || 'Failed to fetch stats')
+  return data.data
+}

@@ -490,3 +490,81 @@ export async function toggleOccurrence(occurrenceId: string, userId: string) {
 
   return updated
 }
+
+export interface DailyStat {
+  date: string
+  totalTasks: number
+  completedTasks: number
+  progressPercent: number
+}
+
+export async function fetchDailyStats(
+  startDate: string,
+  endDate: string,
+  projectId?: string
+): Promise<DailyStat[]> {
+  const url = new URL('/api/tasks/stats', window.location.origin)
+  url.searchParams.set('startDate', startDate)
+  url.searchParams.set('endDate', endDate)
+  if (projectId && projectId !== 'all') url.searchParams.set('projectId', projectId)
+  const res = await fetch(url.toString())
+  const json = await res.json()
+  if (!res.ok) throw new Error(json.error || 'Failed to fetch stats')
+  return json.data || []
+}
+
+export interface MonthlyStat {
+  month: string
+  year: number
+  percentage: number
+}
+
+export async function getMonthlyCompletionStats(
+  userId: string,
+  year?: number,
+  projectId?: string
+): Promise<MonthlyStat[]> {
+  const conditions = [eq(tasks.userId, userId)]
+  if (projectId && projectId !== 'all') {
+    conditions.push(eq(tasks.projectId, projectId))
+  }
+
+  const yearFilter = year
+    ? sql`EXTRACT(YEAR FROM ${taskOccurrences.date}) = ${year}`
+    : sql`true`
+
+  const monthlyStats = await db
+    .select({
+      month: sql<string>`TO_CHAR(${taskOccurrences.date}, 'YYYY-MM')`,
+      total: sql<number>`COUNT(*)`,
+      completed: sql<number>`SUM(CASE WHEN ${taskOccurrences.completed} THEN 1 ELSE 0 END)`,
+    })
+    .from(taskOccurrences)
+    .innerJoin(tasks, eq(tasks.id, taskOccurrences.taskId))
+    .where(and(...conditions, yearFilter))
+    .groupBy(sql`TO_CHAR(${taskOccurrences.date}, 'YYYY-MM')`)
+    .orderBy(sql`TO_CHAR(${taskOccurrences.date}, 'YYYY-MM')`)
+
+  if (year) {
+    const allMonths = []
+    for (let m = 0; m < 12; m++) {
+      const monthStr = `${year}-${String(m + 1).padStart(2, '0')}`
+      const found = monthlyStats.find(s => s.month === monthStr)
+      const total = found?.total || 0
+      const completed = found?.completed || 0
+      const percentage = total ? Math.round((completed / total) * 100) : 0
+      allMonths.push({
+        month: new Date(monthStr + '-01').toLocaleString('default', { month: 'short' }),
+        year,
+        percentage,
+      })
+    }
+    return allMonths
+  }
+
+  return monthlyStats.map(stat => ({
+    month: new Date(stat.month + '-01').toLocaleString('default', { month: 'short' }),
+    year: parseInt(stat.month.split('-')[0]),
+    percentage: stat.total ? Math.round((stat.completed / stat.total) * 100) : 0,
+  }))
+}
