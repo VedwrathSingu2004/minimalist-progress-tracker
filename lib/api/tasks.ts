@@ -179,3 +179,19 @@ export async function fetchDailyStats(startDate: string, endDate: string): Promi
   if (!res.ok) throw new Error(data.error || 'Failed to fetch stats')
   return data.data
 }
+
+export interface HeatmapDataPoint {
+  date: string
+  count: number
+}
+
+export async function fetchHeatmapData(year?: number, projectId?: string): Promise<HeatmapDataPoint[]> {
+  const url = new URL('/api/tasks/heatmap', window.location.origin)
+  if (year) url.searchParams.set('year', year.toString())
+  if (projectId && projectId !== 'all') url.searchParams.set('projectId', projectId)
+  const res = await fetch(url.toString())
+  const json = await res.json()
+  if (!res.ok) throw new Error(json.error || 'Failed to fetch heatmap data')
+  console.log(json.data)
+  return json.data
+}

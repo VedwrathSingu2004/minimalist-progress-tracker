@@ -568,3 +568,51 @@ export async function getMonthlyCompletionStats(
     percentage: stat.total ? Math.round((stat.completed / stat.total) * 100) : 0,
   }))
 }
+
+export interface HeatmapDataPoint {
+  date: string
+  count: number
+}
+
+export async function getHeatmapData(
+  userId: string,
+  year: number = new Date().getFullYear(),
+  projectId?: string
+): Promise<HeatmapDataPoint[]> {
+  const conditions = [eq(tasks.userId, userId)]
+  if (projectId && projectId !== 'all') {
+    conditions.push(eq(tasks.projectId, projectId))
+  }
+
+  const startDate = `${year}-01-01`
+  const endDate = `${year}-12-31`
+
+  const result = await db
+    .select({
+      date: sql<string>`TO_CHAR(date_series.date, 'YYYY-MM-DD')`,
+      count: sql<number>`COALESCE(completed_counts.count, 0)`,
+    })
+    .from(sql`
+      (SELECT generate_series(${startDate}::date, ${endDate}::date, '1 day') AS date) AS date_series
+    `)
+    .leftJoin(
+      sql`
+        (SELECT
+           ${taskOccurrences.date} AS occ_date,
+           COUNT(*) AS count
+         FROM ${taskOccurrences}
+         INNER JOIN ${tasks} ON ${tasks.id} = ${taskOccurrences.taskId}
+         WHERE ${and(...conditions)}
+           AND ${taskOccurrences.completed} = true
+           AND ${taskOccurrences.date} BETWEEN ${startDate} AND ${endDate}
+         GROUP BY ${taskOccurrences.date}
+        ) AS completed_counts`,
+      sql`date_series.date = completed_counts.occ_date`
+    )
+    .orderBy(sql`date_series.date`)
+
+  return result.map(row => ({
+    date: row.date,
+    count: Number(row.count),
+  }))
+}
