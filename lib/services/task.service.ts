@@ -616,3 +616,51 @@ export async function getHeatmapData(
     count: Number(row.count),
   }))
 }
+
+export interface ProjectStat {
+  id: string
+  name: string
+  total: number
+  completed: number
+  percentage: number
+}
+
+export async function getProjectCompletionStats(
+  userId: string,
+  startDate?: string,
+  endDate?: string
+): Promise<ProjectStat[]> {
+  const dateConditions = []
+  if (startDate && endDate) {
+    dateConditions.push(
+      gte(taskOccurrences.date, startDate),
+      lte(taskOccurrences.date, endDate)
+    )
+  }
+
+  const result = await db
+    .select({
+      id: projects.id,
+      name: projects.name,
+      total: sql<number>`COUNT(${taskOccurrences.id})`.as('total'),
+      completed: sql<number>`SUM(CASE WHEN ${taskOccurrences.completed} THEN 1 ELSE 0 END)`.as('completed'),
+    })
+    .from(projects)
+    .leftJoin(tasks, eq(tasks.projectId, projects.id))
+    .leftJoin(taskOccurrences, eq(taskOccurrences.taskId, tasks.id))
+    .where(
+      and(
+        eq(projects.userId, userId),
+        ...dateConditions
+      )
+    )
+    .groupBy(projects.id, projects.name)
+
+  return result.map(row => ({
+    id: row.id,
+    name: row.name,
+    total: Number(row.total),
+    completed: Number(row.completed),
+    percentage: row.total > 0 ? Math.round((Number(row.completed) / Number(row.total)) * 100) : 0,
+  }))
+}

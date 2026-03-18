@@ -21,7 +21,6 @@ export async function fetchTasks(projectId?: string): Promise<Task[]> {
     throw new Error(data.error || 'Failed to fetch tasks')
   }
 
-  console.log(data.data)
   return data.data || []
 }
 
@@ -192,6 +191,28 @@ export async function fetchHeatmapData(year?: number, projectId?: string): Promi
   const res = await fetch(url.toString())
   const json = await res.json()
   if (!res.ok) throw new Error(json.error || 'Failed to fetch heatmap data')
-  console.log(json.data)
+
+  return json.data
+}
+
+export interface ProjectStat {
+  id: string
+  name: string
+  total: number
+  completed: number
+  percentage: number
+}
+
+export async function fetchProjectStats(
+  startDate?: string,
+  endDate?: string
+): Promise<ProjectStat[]> {
+  const url = new URL('/api/tasks/project-stats', window.location.origin)
+  if (startDate) url.searchParams.set('startDate', startDate)
+  if (endDate) url.searchParams.set('endDate', endDate)
+  const res = await fetch(url.toString())
+  const json = await res.json()
+  if (!res.ok) throw new Error(json.error || 'Failed to fetch project stats')
+
   return json.data
 }

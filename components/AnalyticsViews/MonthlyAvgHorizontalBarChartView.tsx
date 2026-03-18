@@ -42,7 +42,6 @@ export default function MonthlyCompletionBarChartView() {
   const containerRef = useRef<HTMLDivElement>(null)
   const [dimensions, setDimensions] = useState({ width: 700, height: 500 })
 
-  // Fetch data when year changes
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true)
@@ -61,7 +60,6 @@ export default function MonthlyCompletionBarChartView() {
     fetchData()
   }, [year])
 
-  // Responsive sizing
   useEffect(() => {
     function updateSize() {
       if (containerRef.current) {
@@ -149,9 +147,9 @@ export default function MonthlyCompletionBarChartView() {
                     <Bar
                       tooltip={
                         <ChartTooltip
-                          content={(d: any) =>
-                            `${d.key}: ${d.data}% avg completed`
-                          }
+                          content={(d: any) => {
+                            return `${d.key}: ${d.value}% avg completed`;
+                          }}
                         />
                       }
                     />

@@ -11,22 +11,22 @@ import {
   Layers,
   LayoutList,
   BarChart3,
+  Loader2,
 } from 'lucide-react'
+import { fetchProjectStats, type ProjectStat } from '@/lib/api/tasks'
 
-interface ProjectData {
-  name: string
-  emoji: string
-  completed: number
-  pending: number
-  accentDot: string
-}
-
-const PROJECTS: ProjectData[] = [
-  { name: 'Website Redesign', emoji: '🌐', completed: 45, pending: 12, accentDot: 'bg-indigo-500' },
-  { name: 'Mobile App', emoji: '📱', completed: 32, pending: 28, accentDot: 'bg-violet-500' },
-  { name: 'API Integration', emoji: '🔗', completed: 18, pending: 7, accentDot: 'bg-cyan-500' },
-  { name: 'Dashboard Analytics', emoji: '📊', completed: 24, pending: 15, accentDot: 'bg-amber-500' },
+// Predefined colors and emojis for visual variety
+const PROJECT_COLORS = [
+  'bg-indigo-500',
+  'bg-violet-500',
+  'bg-cyan-500',
+  'bg-amber-500',
+  'bg-rose-500',
+  'bg-emerald-500',
+  'bg-blue-500',
+  'bg-purple-500',
 ]
+const PROJECT_EMOJIS = ['🌐', '📱', '🔗', '📊', '🎯', '📝', '⚙️', '📦']
 
 type ViewMode = 'stacked' | 'grouped'
 
@@ -37,24 +37,57 @@ export default function ProjectTaskDistributionView() {
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 })
   const [mounted, setMounted] = useState(false)
 
+  // API states
+  const [projectStats, setProjectStats] = useState<ProjectStat[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
   const { resolvedTheme } = useTheme()
 
   useEffect(() => setMounted(true), [])
+
+  // Fetch data on mount
+  useEffect(() => {
+    const loadData = async () => {
+      setLoading(true)
+      setError(null)
+      try {
+        const data = await fetchProjectStats() // no date range for now
+        setProjectStats(data)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load project stats')
+      } finally {
+        setLoading(false)
+      }
+    }
+    loadData()
+  }, [])
 
   const isDark = mounted ? resolvedTheme === 'dark' : true
 
   const completedColor = isDark ? '#34d399' : '#059669'
   const pendingColor = isDark ? '#fb923c' : '#ea580c'
 
-  const maxTotal = Math.max(...PROJECTS.map((p) => p.completed + p.pending))
-  const maxSingle = Math.max(...PROJECTS.map((p) => Math.max(p.completed, p.pending)))
-  const totalCompleted = PROJECTS.reduce((s, p) => s + p.completed, 0)
-  const totalPending = PROJECTS.reduce((s, p) => s + p.pending, 0)
+  // Transform API data to UI-friendly format
+  const projects = useMemo(() => {
+    return projectStats.map((stat, idx) => ({
+      name: stat.name,
+      emoji: PROJECT_EMOJIS[idx % PROJECT_EMOJIS.length],
+      completed: stat.completed,
+      pending: stat.total - stat.completed,
+      accentDot: PROJECT_COLORS[idx % PROJECT_COLORS.length],
+    }))
+  }, [projectStats])
+
+  const maxTotal = Math.max(...projects.map((p) => p.completed + p.pending), 0)
+  const maxSingle = Math.max(...projects.map((p) => Math.max(p.completed, p.pending)), 0)
+  const totalCompleted = projects.reduce((s, p) => s + p.completed, 0)
+  const totalPending = projects.reduce((s, p) => s + p.pending, 0)
   const totalTasks = totalCompleted + totalPending
-  const overallRate = ((totalCompleted / totalTasks) * 100).toFixed(1)
+  const overallRate = totalTasks > 0 ? ((totalCompleted / totalTasks) * 100).toFixed(1) : '0'
 
   const scaleMax = viewMode === 'stacked' ? maxTotal : maxSingle
-  const niceMax = Math.ceil(scaleMax / 10) * 10
+  const niceMax = Math.ceil(scaleMax / 10) * 10 || 100 // fallback to 100 if all zero
 
   const ticks = useMemo(() => {
     const count = 5
@@ -99,7 +132,7 @@ export default function ProjectTaskDistributionView() {
     setHoveredSegment(null)
   }, [])
 
-  const hoveredData = hoveredProject !== null ? PROJECTS[hoveredProject] : null
+  const hoveredData = hoveredProject !== null ? projects[hoveredProject] : null
 
   const statCards = [
     {
@@ -140,17 +173,41 @@ export default function ProjectTaskDistributionView() {
     },
   ]
 
-  // ── Mini SVG ring helper ──
   const RING_R = 9
   const RING_CIRC = 2 * Math.PI * RING_R
+
+  // Loading / error states
+  if (loading) {
+    return (
+      <Card className='w-full h-96 flex items-center justify-center'>
+        <Loader2 className='h-8 w-8 animate-spin text-muted-foreground' />
+      </Card>
+    )
+  }
+
+  if (error) {
+    return (
+      <Card className='w-full h-96 flex items-center justify-center'>
+        <p className='text-destructive'>Error: {error}</p>
+      </Card>
+    )
+  }
+
+  if (projects.length === 0) {
+    return (
+      <Card className='w-full h-96 flex items-center justify-center'>
+        <p className='text-muted-foreground'>No project data available</p>
+      </Card>
+    )
+  }
 
   return (
     <Card
       className='w-full overflow-hidden border-border/50
-                 bg-gradient-to-br from-background via-background to-muted/30'
+                 bg-linear-to-br from-background via-background to-muted/30'
     >
       {/* Accent line */}
-      <div className='h-0.5 w-full bg-gradient-to-r from-transparent via-indigo-500/60 to-transparent' />
+      <div className='h-0.5 w-full bg-linear-to-r from-transparent via-indigo-500/60 to-transparent' />
 
       <CardHeader className='pb-3 pt-5'>
         <div className='flex flex-col sm:flex-row sm:items-center justify-between gap-4'>
@@ -166,7 +223,7 @@ export default function ProjectTaskDistributionView() {
                 Project Task Distribution
               </CardTitle>
             </div>
-            <p className='text-sm text-muted-foreground pl-[42px]'>
+            <p className='text-sm text-muted-foreground pl-10.5'>
               Completed vs pending tasks across projects
             </p>
           </div>
@@ -223,14 +280,14 @@ export default function ProjectTaskDistributionView() {
             <div
               key={s.label}
               className={`group relative rounded-xl border ${s.borderAccent}
-                         bg-gradient-to-br ${s.accent}
+                         bg-linear-to-br ${s.accent}
                          p-4 transition-all duration-300
                          hover:scale-[1.02] hover:shadow-lg
                          hover:shadow-black/5 dark:hover:shadow-black/10`}
             >
               <div
-                className='absolute inset-0 rounded-xl bg-gradient-to-br
-                            from-white/5 to-transparent dark:from-white/[0.02]
+                className='absolute inset-0 rounded-xl bg-linear-to-br
+                            from-white/5 to-transparent dark:from-white/2
                             dark:to-transparent pointer-events-none'
               />
               <div className='relative'>
@@ -254,20 +311,17 @@ export default function ProjectTaskDistributionView() {
         {/* Bar Chart */}
         <div
           className='w-full rounded-2xl border border-border/40
-                     bg-gradient-to-br from-muted/30 via-muted/10 to-muted/30
+                     bg-linear-to-br from-muted/30 via-muted/10 to-muted/30
                      p-5 shadow-inner'
           onMouseLeave={handleMouseLeave}
         >
           <div className='space-y-1'>
-            {PROJECTS.map((project, idx) => {
+            {projects.map((project, idx) => {
               const total = project.completed + project.pending
-              const rateNum = parseFloat(
-                ((project.completed / total) * 100).toFixed(0)
-              )
+              const rateNum = total > 0 ? parseFloat(((project.completed / total) * 100).toFixed(0)) : 0
               const rate = rateNum.toFixed(0)
               const isHovered = hoveredProject === idx
-              const isDimmed =
-                hoveredProject !== null && hoveredProject !== idx
+              const isDimmed = hoveredProject !== null && hoveredProject !== idx
 
               const rateColorClass =
                 rateNum >= 70
@@ -304,7 +358,7 @@ export default function ProjectTaskDistributionView() {
                       <div
                         className={`w-2 h-2 rounded-full ${project.accentDot} shrink-0`}
                       />
-                      <span className='text-sm font-semibold text-foreground truncate max-w-[180px] sm:max-w-none'>
+                      <span className='text-sm font-semibold text-foreground truncate max-w-45 sm:max-w-none'>
                         {project.name}
                       </span>
                       <span
@@ -357,7 +411,7 @@ export default function ProjectTaskDistributionView() {
                       {[0.25, 0.5, 0.75].map((pct) => (
                         <div
                           key={pct}
-                          className='absolute top-0 bottom-0 w-px bg-foreground/[0.04]'
+                          className='absolute top-0 bottom-0 w-px bg-foreground/4'
                           style={{ left: `${pct * 100}%` }}
                         />
                       ))}
@@ -423,11 +477,11 @@ export default function ProjectTaskDistributionView() {
                     <div className='space-y-1.5'>
                       {/* Completed */}
                       <div className='flex items-center gap-2'>
-                        <div className='relative h-[18px] flex-1 rounded-md bg-muted/50 dark:bg-muted/20 overflow-hidden'>
+                        <div className='relative h-4.5 flex-1 rounded-md bg-muted/50 dark:bg-muted/20 overflow-hidden'>
                           {[0.25, 0.5, 0.75].map((pct) => (
                             <div
                               key={pct}
-                              className='absolute top-0 bottom-0 w-px bg-foreground/[0.04]'
+                              className='absolute top-0 bottom-0 w-px bg-foreground/4'
                               style={{ left: `${pct * 100}%` }}
                             />
                           ))}
@@ -465,11 +519,11 @@ export default function ProjectTaskDistributionView() {
 
                       {/* Pending */}
                       <div className='flex items-center gap-2'>
-                        <div className='relative h-[18px] flex-1 rounded-md bg-muted/50 dark:bg-muted/20 overflow-hidden'>
+                        <div className='relative h-4.5 flex-1 rounded-md bg-muted/50 dark:bg-muted/20 overflow-hidden'>
                           {[0.25, 0.5, 0.75].map((pct) => (
                             <div
                               key={pct}
-                              className='absolute top-0 bottom-0 w-px bg-foreground/[0.04]'
+                              className='absolute top-0 bottom-0 w-px bg-foreground/4'
                               style={{ left: `${pct * 100}%` }}
                             />
                           ))}
@@ -553,7 +607,7 @@ export default function ProjectTaskDistributionView() {
                           px-4 py-3 text-xs'
             >
               <div
-                className='absolute -bottom-[5px] left-1/2 -translate-x-1/2
+                className='absolute -bottom-1.25 left-1/2 -translate-x-1/2
                             w-2.5 h-2.5 rotate-45
                             bg-popover/95 border-r border-b border-border'
               />
@@ -602,22 +656,20 @@ export default function ProjectTaskDistributionView() {
                     <div
                       className='h-full rounded-l-full'
                       style={{
-                        width: `${
-                          (hoveredData.completed /
-                            (hoveredData.completed + hoveredData.pending)) *
-                          100
-                        }%`,
+                        width: `${(
+                          hoveredData.completed /
+                          (hoveredData.completed + hoveredData.pending)
+                        ) * 100}%`,
                         backgroundColor: completedColor,
                       }}
                     />
                     <div
                       className='h-full rounded-r-full'
                       style={{
-                        width: `${
-                          (hoveredData.pending /
-                            (hoveredData.completed + hoveredData.pending)) *
-                          100
-                        }%`,
+                        width: `${(
+                          hoveredData.pending /
+                          (hoveredData.completed + hoveredData.pending)
+                        ) * 100}%`,
                         backgroundColor: pendingColor,
                       }}
                     />
@@ -627,8 +679,7 @@ export default function ProjectTaskDistributionView() {
                       (hoveredData.completed /
                         (hoveredData.completed + hoveredData.pending)) *
                       100
-                    ).toFixed(0)}
-                    %
+                    ).toFixed(0)}%
                   </span>
                 </div>
               </div>

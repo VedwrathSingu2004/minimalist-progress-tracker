@@ -49,22 +49,42 @@ const bottomLinks = [
   { label: 'Logout',   href: '/#',   icon: <LogOut   className='h-5 w-5 shrink-0' /> },
 ]
 
-// ── Helper: check if a link is active ────────────
-
 const isLinkActive = (href: string, pathname: string) => {
   if (href === '/') return pathname === '/'
   return pathname === href || pathname.startsWith(href + '/')
 }
 
-// ── User Card ────────────────────────────────────
-
 const UserCard = () => {
   const { open, animate } = useSidebar()
+  const { data: session, isPending } = authClient.useSession()
+  const user = session?.user
+
+  if (isPending) {
+    return (
+      <div className='flex items-center gap-3 rounded-lg px-2 py-2'>
+        <div className='h-7 w-7 animate-pulse rounded-full bg-muted' />
+        <motion.div
+          animate={{
+            display: animate ? (open ? 'flex' : 'none') : 'flex',
+            opacity: animate ? (open ? 1 : 0) : 1,
+          }}
+          className='flex flex-col space-y-1'
+        >
+          <div className='h-3 w-20 animate-pulse rounded bg-muted' />
+          <div className='h-2 w-28 animate-pulse rounded bg-muted' />
+        </motion.div>
+      </div>
+    )
+  }
+
+  const initials = user?.name
+    ? user.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
+    : 'U'
 
   return (
     <div className='flex items-center gap-3 rounded-lg px-2 py-2'>
       <div className='flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary'>
-        JD
+        {initials}
       </div>
       <motion.div
         animate={{
@@ -75,10 +95,10 @@ const UserCard = () => {
         className='flex flex-col'
       >
         <span className='text-sm font-medium leading-none text-foreground'>
-          John Doe
+          {user?.name || 'User'}
         </span>
         <span className='mt-0.5 text-[11px] text-muted-foreground'>
-          john@example.com
+          {user?.email || ''}
         </span>
       </motion.div>
     </div>
