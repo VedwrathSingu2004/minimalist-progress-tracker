@@ -2,16 +2,29 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## Getting Started
 
+Initial steps
+
+```
+npm install
+npm i -D drizzle-kit
+```
+
 Set up environment variables in .env file:
 
 ```
 DB_URL=postgresql://<YOUR_FULL_POSTGRES_DB_URL>
 
 BETTER_AUTH_SECRET=<YOUR_BETTER_AUTH_SECRET>
-BETTER_AUTH_URL=http://localhost:3000
+BETTER_AUTH_URL=http://localhost:3000   # or any endpoint where Better Auth Proxy listens
 ```
 
-First, run the development server:
+Set up PostgreSQL database schema using Drizzle ORM:
+
+```
+npx drizzle-kit push
+```
+
+Run the development server:
 
 ```bash
 npm run dev
