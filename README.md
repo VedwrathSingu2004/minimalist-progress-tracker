@@ -2,6 +2,15 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## Getting Started
 
+Set up environment variables in .env file:
+
+```
+DB_URL=postgresql://<YOUR_FULL_POSTGRES_DB_URL>
+
+BETTER_AUTH_SECRET=<YOUR_BETTER_AUTH_SECRET>
+BETTER_AUTH_URL=http://localhost:3000
+```
+
 First, run the development server:
 
 ```bash
