@@ -16,6 +16,7 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     autoSignIn: true,
+    disableSignUp: true
   },
   // socialProviders: {
   //   github: {
