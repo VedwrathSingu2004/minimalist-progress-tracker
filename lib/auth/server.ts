@@ -4,6 +4,9 @@ import db from "@/db"
 import * as schema from "@/db/schema"
 
 export const auth = betterAuth({
+  session: {
+    expiresIn: Number(process.env.BETTER_AUTH_SESSION_EXPIRY) // in days
+  },
   database: drizzleAdapter(db, {
     provider: "pg",
     schema,
